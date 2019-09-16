@@ -681,7 +681,6 @@ class FirmwareUpdater(QThread):
             self.show_message_box.emit(version)
             self.show_status_short_time(self.hint_flashing_success)
             self.has_firmware = True
-            QTimer.singleShot(0, self.check_new_firmware)
         else:
             self.show_status_short_time(self.hint_flashing_fail)
             self.show_status_short_time('flashing fail.')
