@@ -534,7 +534,6 @@ class FirmwareUpdater(QThread):
     def run(self):
         # extract first
         self.extract()
-        QTimer.singleShot(0, self.check_new_lib)
         while True:
             while not self.detected:
                 time.sleep(1)
@@ -548,6 +547,7 @@ class FirmwareUpdater(QThread):
         self.show_status.emit(msg, 1000 * 1000)
 
     def check_new_lib(self):
+        print('check lib')
         if not download(self.info.libaray_info_path,
                         self.info.cloud_libaray_info_path):
             print('network error')
@@ -743,10 +743,10 @@ class FirmwareUpdater(QThread):
                 timeout=3
             )
             if success:
-                print("firmware download failure.")
+                print("finish firmware download.")
                 current_version = new_version
             else:
-                print("finish firmware download.")
+                print("firmware download failure.")
         return current_version
 
     def update(self):
@@ -773,7 +773,8 @@ class FirmwareUpdater(QThread):
             has_seeed_firmware = False
         if not need_update:
             print('has latest firmware.')
-            QTimer.singleShot(0, self.check_new_firmware)
+            self.check_new_firmware()
+            self.check_new_lib()
         else:
             self.download_to_board(
                 last_version,
