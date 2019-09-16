@@ -600,6 +600,8 @@ class Editor:
         self.current_path = ''  # Directory of last loaded file.
         self.global_replace = False
         self.selecting_mode = False  # Flag to stop auto-detection of modes.
+        self.detect_new_device_handle = None
+        self.disconnected_handle = None
         if not os.path.exists(DATA_DIR):
             logger.debug('Creating directory: {}'.format(DATA_DIR))
             os.makedirs(DATA_DIR)
@@ -1321,6 +1323,8 @@ class Editor:
                 to_remove.append(connected)
         for device in to_remove:
             self.connected_devices.remove(device)
+            if self.disconnected_handle is not None:
+                self.disconnected_handle(device[0])
         # Add newly connected devices.
         for device in devices:
             if device not in self.connected_devices:
@@ -1343,6 +1347,8 @@ class Editor:
                         msg, msg_body, icon='Question')
                     if change_confirmation == QMessageBox.Ok:
                         self.change_mode(mode_name)
+                if self.detect_new_device_handle is not None:
+                    self.detect_new_device_handle(device[1])
 
     def show_status_message(self, message, duration=5):
         """
