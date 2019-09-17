@@ -808,15 +808,27 @@ class SeeedMode(MicroPythonMode):
         editor.disconnected_handle = \
             self.__asyc_disconnected_handle
 
-        editor.get_dialog_directory = self.__get_dialog_directory
-
-    def __get_dialog_directory(self, default=None):
+    def __load(self, *args, default_path=None):
         """
-        Return the directory folder in which a load/save dialog box should
-        open into.
-
+        Loads a Python (or other supported) file from the file system or
+        extracts a Python script from a hex file.
         """
-        return super().workspace_dir()
+        # Get all supported extensions from the different modes
+        extensions = ['py']
+        for mode_name, mode in self.editor.modes.items():
+            if mode.file_extensions:
+                extensions += mode.file_extensions
+        extensions = set([e.lower() for e in extensions])
+        extensions = '*.{} *.{}'.format(' *.'.join(extensions),
+                                        ' *.'.join(extensions).upper())
+        folder = super().workspace_dir()
+        allow_previous = False
+        path = self.view.get_load_path(folder, extensions,
+                                        allow_previous=allow_previous)
+        if path:
+            self.current_path = os.path.dirname(os.path.abspath(path))
+            self.editor._load(path)
+
 
     def __set_all_button(self, state):
         print('button Enable=' + str(state))
@@ -914,6 +926,7 @@ class SeeedMode(MicroPythonMode):
                 'handler': self.toggle_plotter,
                 'shortcut': 'CTRL+Shift+P',
             })
+        self.editor.load = self.__load
         return buttons
 
     def api(self):
