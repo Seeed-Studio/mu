@@ -98,16 +98,16 @@ class Info:
         self.dic_config.clear()
 
         for board in inf['boot']:
-            name = board['name']
+            name = board['type']
             pvid = board['pvid']
-            keyv = (pvid[0], pvid[1])
+            keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_boot.append(keyv)
 
         for board in inf['normal']:
-            name = board['name']
+            name = board['type']
             pvid = board['pvid']
-            keyv = (pvid[0], pvid[1])
+            keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_normal.append(keyv)
 
