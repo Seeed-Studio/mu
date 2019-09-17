@@ -804,6 +804,16 @@ class SeeedMode(MicroPythonMode):
         editor.disconnected_handle = \
             self.__asyc_disconnected_handle
 
+        editor.get_dialog_directory = self.__get_dialog_directory
+
+    def __get_dialog_directory(self, default=None):
+        """
+        Return the directory folder in which a load/save dialog box should
+        open into.
+
+        """
+        return super().workspace_dir()
+
     def __set_all_button(self, state):
         print('button Enable=' + str(state))
         self.set_buttons(files=state, run=state, repl=state, plotter=state)
