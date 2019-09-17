@@ -501,7 +501,7 @@ def download(des_path, source_path, timeout=5, try_time=3):
                 file.write(block)
             file.close()
             shutil.move(tmp, des_path)
-            print("finish download.")
+            print("finish download %s" % des_path)
             return True
         except Exception as ex:
             print(ex)
@@ -537,6 +537,7 @@ class FirmwareUpdater(QThread):
         self.set_all_button.connect(set_all_button)
 
     def run(self):
+        self.set_all_button.emit(False)
         self.check_new_lib()
         while True:
             while not self.detected:
@@ -716,21 +717,24 @@ class FirmwareUpdater(QThread):
         return None
 
     def check_new_firmware(self, file):
-        self.show_status_short_time('check %s' % file.local_config_name)
+        self.show_status_always('check %s...' % file.local_config_name)
         if not download(file.local_config, file.cloud_config, 3):
             self.show_status_short_time('network failure')
             return False
         if file.exist_firmware:
+            self.show_status_short_time('')
             return True
 
         file.reload()
-        self.show_status_short_time('download %s' % file.firmware_name)
+        self.show_status_always('download %s...' % file.firmware_name)
 
         if not download(file.local_firmware, file.cloud_firmware, 3):
             self.show_status_short_time('%s download failure' %
                                         file.firmware_name)
             return False
         else:
+            self.show_status_short_time('%s download successfully' %
+                                        file.firmware_name)
             return True
 
     def update(self):
