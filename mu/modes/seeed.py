@@ -42,6 +42,41 @@ from PyQt5.QtWidgets import QGridLayout, QLabel, QFrame
 logger = logging.getLogger(__name__)
 
 
+def seeed_path(child):
+    return path(child, 'seeed/')
+
+
+class Config:
+    def __init__(self, name):
+        self.local_config_name = name
+        self.local_config = seeed_path(name)
+        self.cloud_config = 'https://seeed-studio.github.io/ArduPy/' + name
+        self.reload()
+
+    def reload(self):
+        self.json = json.loads(open(self.local_config, 'r').read())
+
+    @property
+    def exist_firmware(self):
+        return os.path.exists(self.local_firmware)
+
+    @property
+    def version(self):
+        return strptime(self.json['firmware']['version'])
+
+    @property
+    def cloud_firmware(self):
+        return self.json['firmware']['path']
+
+    @property
+    def local_firmware(self):
+        return seeed_path(self.firmware_name)
+
+    @property
+    def firmware_name(self):
+        return self.json['firmware']['name']
+
+
 class Info:
     __stty = None
     __config = None
@@ -52,6 +87,7 @@ class Info:
     com = None
     board_id = None
     board_name = None
+    config_fmt = 'config-%s.json'
 
     def __init__(self):
         inf = open(self.info_path, 'r')
@@ -60,20 +96,19 @@ class Info:
         self.board_boot.clear()
         self.board_normal.clear()
         self.dic_config.clear()
-        fmt = 'config-%s.json'
 
         for board in inf['boot']:
             name = board['name']
             pvid = board['pvid']
             keyv = (pvid[0], pvid[1])
-            self.dic_config.setdefault(str(keyv), fmt % name)
+            self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_boot.append(keyv)
 
         for board in inf['normal']:
             name = board['name']
             pvid = board['pvid']
             keyv = (pvid[0], pvid[1])
-            self.dic_config.setdefault(str(keyv), fmt % name)
+            self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_normal.append(keyv)
 
         inf = open(self.info_path, 'r')
@@ -82,51 +117,13 @@ class Info:
         for lib in inf['lib']:
             self.lib_dic.setdefault(lib['name'], lib['version'])
 
-    def load_config(self):
-        file = open(self.config_path, 'r')
-        self.__config = json.loads(file.read())
-
-    @staticmethod
-    def path(child):
-        return path(child, 'seeed/')
-
-    @staticmethod
-    def path_tools(child):
-        if os.name == 'posix':
-            if platform.uname().system == 'Darwin':
-                return path(child, 'seeed/tools-darwin/')
-            return path(child, 'seeed/tools-linux/')
-        else:
-            return path(child, 'seeed/tools-win/')
-
-    @property
-    def cloud_config_path(self):
-        return 'https://seeed-studio.github.io/ArduPy/' + \
-            self.dic_config[self.board_id]
-
     @property
     def cloud_libaray_info_path(self):
         return 'https://seeed-studio.github.io/ArduPy/libaray.json'
 
     @property
-    def config_path(self):
-        return self.path(self.dic_config[self.board_id])
-
-    @property
-    def version(self):
-        return strptime(self.__config['firmware']['version'])
-
-    @property
-    def cloud_firmware(self):
-        return self.__config['firmware']['path']
-
-    @property
-    def local_firmware(self):
-        return self.path(self.__config['firmware']['name'])
-
-    @property
-    def firmware_name(self):
-        return self.__config['firmware']['name']
+    def current_config_name(self):
+        return self.dic_config[self.board_id]
 
     @property
     def short_device_name(self):
@@ -135,11 +132,18 @@ class Info:
         else:
             return self.board_name
 
-    @property
-    def bossac(self):
+    def bossac(self, local_firmware):
+        def path_tools(child):
+            if os.name == 'posix':
+                if platform.uname().system == 'Darwin':
+                    return path(child, 'seeed/tools-darwin/')
+                return path(child, 'seeed/tools-linux/')
+            else:
+                return path(child, 'seeed/tools-win/')
+
         cmd = 'bossac.exe -i -d --port=%s -U true -i -e -w -v %s -R' \
-            % (self.short_device_name, self.local_firmware)
-        cmd = self.path_tools(cmd)
+            % (self.short_device_name, local_firmware)
+        cmd = path_tools(cmd)
         print(cmd)
         return cmd
 
@@ -155,11 +159,11 @@ class Info:
 
     @property
     def info_path(self):
-        return self.path('info.json')
+        return seeed_path('info.json')
 
     @property
     def libaray_info_path(self):
-        return self.path('libaray.json')
+        return seeed_path('libaray.json')
 
 
 class ConfirmFlag:
@@ -484,8 +488,9 @@ def strptime(value):
 
 def download(des_path, source_path, timeout=5, try_time=3):
     tmp = des_path + '.tmp'
-
-    for i in range(0, try_time):
+    i = 0
+    while i < try_time:
+        i = i + 1
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
@@ -532,8 +537,7 @@ class FirmwareUpdater(QThread):
         self.set_all_button.connect(set_all_button)
 
     def run(self):
-        # extract first
-        self.extract()
+        self.check_new_lib()
         while True:
             while not self.detected:
                 time.sleep(1)
@@ -567,14 +571,17 @@ class FirmwareUpdater(QThread):
             new_ver = new['version']
 
             if new_nam not in self.info.lib_dic.keys():
-                self.show_status_always('downloading %s...' % new_nam)
+                self.show_status_always(
+                    'downloading %s, please wait patiently' % new_nam)
             elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):
-                self.show_status_always('updating %s...' % new_nam)
+                self.show_status_always(
+                    'updating %s, please wait patiently' % new_nam)
             else:
                 need_download = False
             if not need_download:
                 continue
-            if not download(self.info.path(new_nam), new['path'], timeout=16):
+
+            if not download(seeed_path(new_nam), new['path']):
                 self.show_status_short_time(network_error)
                 return
 
@@ -583,6 +590,7 @@ class FirmwareUpdater(QThread):
             if not self.unzip(new_nam):
                 self.show_status_short_time('%s extract failure' % new_nam)
                 return
+            self.info.lib_dic.setdefault(new_nam, new_ver)
             has_new = True
 
         if not has_new:
@@ -595,15 +603,8 @@ class FirmwareUpdater(QThread):
             print('lib has been updated successfully!')
         self.show_status_short_time('libaray update successfully!')
 
-    def extract(self):
-        # extract to mu_code dir
-        inf = open(self.info.info_path, 'r')
-        inf = json.loads(inf.read())
-        for lib in inf['lib']:
-            self.unzip(lib['name'])
-
     def unzip(self, lib_zip_name):
-        lib_path_zip = self.info.path(lib_zip_name)
+        lib_path_zip = seeed_path(lib_zip_name)
         lib_path_mu_code = os.path.join(
             self.mu_code_path,
             lib_zip_name.replace('.zip', '')
@@ -625,8 +626,8 @@ class FirmwareUpdater(QThread):
             print(ex)
             return False
 
-    def flashing(self):
-        sp = subprocess.Popen(self.info.bossac, shell=True)
+    def flashing(self, local_firmware):
+        sp = subprocess.Popen(self.info.bossac(local_firmware), shell=True)
         sp.wait()
         return sp.returncode == 0
 
@@ -642,7 +643,7 @@ class FirmwareUpdater(QThread):
 
     def download_to_board(
             self,
-            new_version,
+            config,
             need_update=True,
             has_seeed_firmware=False):
         if self.need_confirm:
@@ -675,9 +676,9 @@ class FirmwareUpdater(QThread):
             return
 
         self.show_status_always(self.hint_flashing)
-        if self.flashing():
+        if self.flashing(config.local_firmware):
             version = 'your board update to version %d.%d.%d sucessfully!' % \
-                (new_version.year, new_version.month, new_version.day)
+                (config.version.year, config.version.month, config.version.day)
             self.show_message_box.emit(version)
             self.show_status_short_time(self.hint_flashing_success)
             self.has_firmware = True
@@ -714,70 +715,54 @@ class FirmwareUpdater(QThread):
         print("giveup")
         return None
 
-    def last_version(self):
-        if os.path.exists(self.info.config_path):
-            self.info.load_config()
-            return self.info.version
+    def check_new_firmware(self, file):
+        self.show_status_short_time('check %s' % file.local_config_name)
+        if not download(file.local_config, file.cloud_config, 3):
+            self.show_status_short_time('network failure')
+            return False
+        if file.exist_firmware:
+            return True
+
+        file.reload()
+        self.show_status_short_time('download %s' % file.firmware_name)
+
+        if not download(file.local_firmware, file.cloud_firmware, 3):
+            self.show_status_short_time('%s download failure' %
+                                        file.firmware_name)
+            return False
         else:
-            return datetime.datetime(2000, 1, 1)
-
-    def check_new_firmware(self):
-        old_version = self.last_version()
-
-        if not download(self.info.config_path,
-                        self.info.cloud_config_path):
-            print('configure file download failure.')
-            return old_version
-        else:
-            current_version = old_version
-            print('finish configure file download.')
-
-        new_version = self.last_version()
-
-        if old_version < new_version and \
-                not os.path.exists(self.info.local_firmware):
-            print("download firmware.")
-            success = download(
-                self.info.local_firmware,
-                self.info.cloud_firmware,
-                timeout=3
-            )
-            if success:
-                print("finish firmware download.")
-                current_version = new_version
-            else:
-                print("firmware download failure.")
-        return current_version
+            return True
 
     def update(self):
-        last_version = self.last_version()
+        config = Config(self.info.current_config_name)
         if self.in_bootload_mode:
-            self.download_to_board(last_version)
+            if not self.need_confirm:
+                self.check_new_firmware(config)
+            self.download_to_board(config)
             return
 
         need_update = True
         has_seeed_firmware = True
         buf = self.board_halt()
+
         try:
+            self.check_new_firmware(config)
             tmp = str(buf, 'utf-8')
             print(tmp)
-            print("download config.")
             r = tmp.index('; Ardupy with seeed')
             ver = tmp[r - 10:r]
             self.info.has_firmware = True
             self.set_all_button.emit(True)
-            need_update = last_version > strptime(ver)
+            need_update = config.version > strptime(ver)
             print(ver)
         except Exception as ex:
             print(ex)
             has_seeed_firmware = False
         if not need_update:
             print('has latest firmware.')
-            self.check_new_firmware()
-            self.check_new_lib()
         else:
             self.download_to_board(
-                last_version,
+                config,
                 need_update,
                 has_seeed_firmware)
 
