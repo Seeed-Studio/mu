@@ -141,9 +141,9 @@ class Info:
             else:
                 return path(child, 'seeed/tools-win/')
 
-        cmd = 'bossac.exe -i -d --port=%s -U true -i -e -w -v %s -R' \
+        cmd = '-i -d --port=%s -U true -i -e -w -v "%s" -R' \
             % (self.short_device_name, local_firmware)
-        cmd = path_tools(cmd)
+        cmd = '"%sbossac" %s' % (path_tools(''), cmd)
         print(cmd)
         return cmd
 
@@ -535,13 +535,19 @@ class FirmwareUpdater(QThread):
         self.show_status.connect(show_status)
         self.show_message_box.connect(show_message_box)
         self.set_all_button.connect(set_all_button)
+        self.config = None
 
     def run(self):
         self.set_all_button.emit(False)
         self.check_new_lib()
+        run_once = True
         while True:
             while not self.detected:
                 time.sleep(1)
+            if run_once:
+                self.config = Config(self.info.current_config_name)
+                if self.check_new_firmware(self.config):
+                    run_once = False
             self.update()
             self.detected = False
 
@@ -738,11 +744,8 @@ class FirmwareUpdater(QThread):
             return True
 
     def update(self):
-        config = Config(self.info.current_config_name)
         if self.in_bootload_mode:
-            if not self.need_confirm:
-                self.check_new_firmware(config)
-            self.download_to_board(config)
+            self.download_to_board(self.config)
             return
 
         need_update = True
@@ -750,14 +753,13 @@ class FirmwareUpdater(QThread):
         buf = self.board_halt()
 
         try:
-            self.check_new_firmware(config)
             tmp = str(buf, 'utf-8')
             print(tmp)
             r = tmp.index('; Ardupy with seeed')
             ver = tmp[r - 10:r]
             self.info.has_firmware = True
             self.set_all_button.emit(True)
-            need_update = config.version > strptime(ver)
+            need_update = self.config.version > strptime(ver)
             print(ver)
         except Exception as ex:
             print(ex)
@@ -766,7 +768,7 @@ class FirmwareUpdater(QThread):
             print('has latest firmware.')
         else:
             self.download_to_board(
-                config,
+                self.config,
                 need_update,
                 has_seeed_firmware)
 
@@ -945,6 +947,7 @@ class SeeedMode(MicroPythonMode):
                     super().remove_plotter()
                 if self.in_running_script:
                     self.in_running_script = False
+                    self.set_buttons(repl=False)
                     self.invoke.board_halt()
                 self.set_buttons(run=True, files=True, repl=True)
             elif not self.repl:
