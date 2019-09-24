@@ -955,7 +955,7 @@ class SeeedMode(MicroPythonMode):
                 super().toggle_repl(event)
                 if not self.repl:
                     return
-                self.set_buttons(run=True, files=False, repl=True)
+                self.set_buttons(run=False, files=False, repl=True)
         else:
             message = _("REPL and file system cannot work at the same time.")
             information = _("The REPL and file system both use the same USB "
