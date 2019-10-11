@@ -34,10 +34,13 @@ from mu.interface.panes import CHARTS, PANE_ZOOM_SIZES, \
 from mu.interface.themes import Font, DEFAULT_FONT_SIZE
 from mu.resources import load_icon, path
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
-from PyQt5.QtCore import pyqtSignal, QThread, QTimer, Qt
+from PyQt5.QtCore import pyqtSignal, QThread, QTimer, Qt, QUrl, \
+    QObject, QEventLoop
 from PyQt5.QtWidgets import QMessageBox, \
     QMenu, QTreeWidget, QTreeWidgetItem, QAbstractItemView
 from PyQt5.QtWidgets import QGridLayout, QLabel, QFrame
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, \
+    QNetworkReply
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +54,16 @@ class Config:
         self.local_config_name = name
         self.local_config = seeed_path(name)
         self.cloud_config = 'https://seeed-studio.github.io/ArduPy/' + name
-        self.reload()
+        self.json = {}
+        if os.path.exists(self.local_config):
+            self.reload()
 
     def reload(self):
-        self.json = json.loads(open(self.local_config, 'r').read())
+        try:
+            self.json = json.loads(open(self.local_config, 'r').read())
+        except Exception as e:
+            self.json = {}
+            print(e)
 
     @property
     def exist_firmware(self):
@@ -482,10 +491,94 @@ class SeeedFileSystemPane(QFrame):
         self.set_font_size(PANE_ZOOM_SIZES[size])
 
 
+class Downloader(QObject):
+    finished = pyqtSignal(bool)
+    def __init__(self, des_path, source_path, reqTimeout=5, readTimeout=0, try_time=3):
+        super(Downloader, self).__init__()
+        self.retStatus = False
+        self.source_path = source_path
+        self.des_path = des_path
+        self.try_time = try_time
+        self.readTimeout = readTimeout*1000
+        self.reqTimeout = reqTimeout*1000
+        self.data = b''
+
+        # request timer, default 5 sec
+        self.reqTimer = QTimer()
+        self.reqTimer.timeout.connect(self.onReqTimeOut)
+        # read data timer, default no time unlimit
+        self.readTimer = QTimer()
+        self.readTimer.timeout.connect(self.onReadTimeOut)
+
+        self.networkManager = QNetworkAccessManager()
+        self.request()
+
+        self.reqTimer.start(self.reqTimeout)
+        self.eventLoop = QEventLoop()
+        self.finished.connect(self.eventLoop.quit)
+        self.eventLoop.exec_()
+
+    def requestAgain(self):
+        self.reply.close()
+        self.request()
+
+    def request(self):
+        print("[DEBUG]------Request")
+        try:
+            if self.try_time:
+                self.reply = self.networkManager.get(QNetworkRequest(QUrl(self.source_path)))
+                self.reply.finished.connect(self.onFinished)
+                self.reply.readyRead.connect(self.onReadyRead)
+                self.try_time = self.try_time - 1
+            else:
+                self.finished.emit(self.retStatus)
+                print("no try times, emit finished")
+
+                self.reqTimer.stop()
+        except Exception as e:
+            print(e)
+
+    def onReadTimeOut(self):
+        # request again
+        self.readTimer.stop()
+        self.request()
+        self.reqTimer.start(self.reqTimeout)
+
+    def onReqTimeOut(self):
+        self.requestAgain()
+
+    def onReadyRead(self):
+        data = self.reply.read(16*1024)
+        self.data += data
+        print('onReadyRead number: %s'%len(data))
+
+    def onFinished(self):
+        try:
+            if len(self.data) <= 0:
+                e = Exception("Invaild Data, Request again")
+                raise e
+
+            self.reqTimer.stop()
+            if self.readTimeout:
+                self.readTimer.start(self.readTimeout)
+            # write
+            with open(self.des_path, 'w') as fp:
+                print("write file:%s"%fp.write(str(self.data, encoding='utf-8')))
+
+            print("finish download %s" % self.des_path)
+            self.retStatus = True
+            self.finished.emit(self.retStatus)
+        except Exception as e:
+            self.requestAgain()
+            self.reqTimer.start(self.reqTimeout)
+            self.readTimer.stop()
+            print("Exception happen in Function[onFinished]: "+str(e))
+
+
 def strptime(value):
     return datetime.datetime.strptime(value, '%Y-%m-%d')
 
-
+# The worst-case scenario is timeout*try_time seconds
 def download(des_path, source_path, timeout=5, try_time=3):
     tmp = des_path + '.tmp'
     i = 0
@@ -494,12 +587,11 @@ def download(des_path, source_path, timeout=5, try_time=3):
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
-            get = requests.get(source_path)
+            get = requests.get(source_path, timeout=timeout)
             get.raise_for_status()
-            file = open(tmp, 'wb')
-            for block in get.iter_content(16 * 1024):
-                file.write(block)
-            file.close()
+            with open(tmp, 'wb') as file:
+                for block in get.iter_content(16 * 1024):
+                    file.write(block)
             shutil.move(tmp, des_path)
             print("finish download %s" % des_path)
             return True
@@ -557,11 +649,24 @@ class FirmwareUpdater(QThread):
     def show_status_always(self, msg):
         self.show_status.emit(msg, 1000 * 1000)
 
+    # async function, ask user need try download again, until successful or refused.
+    def confirmDownload(self, des_path, source_path, timeout=5, try_time=3):
+        while True:
+            downloader = Downloader(des_path, source_path, timeout, try_time)
+            if downloader.retStatus:
+                return True
+            downloader = None
+            flag = ConfirmFlag()
+            flag.hint = 'Network connection timeout, Please try again!'
+            self.confirm.emit(flag)
+            if not flag.is_confirm:
+                return False
+
     def check_new_lib(self):
         print('check lib')
-        if not download(self.info.libaray_info_path,
-                        self.info.cloud_libaray_info_path):
-            print('network error')
+        if not self.confirmDownload(self.info.libaray_info_path,
+                            self.info.cloud_libaray_info_path):
+            print("not check and download new lib!")
             return
 
         lib = open(self.info.libaray_info_path, 'r')
@@ -573,21 +678,23 @@ class FirmwareUpdater(QThread):
 
         # check new
         for new in lib:
-            need_download = True
             new_nam = new['name']
             new_ver = new['version']
 
-            if new_nam not in self.info.lib_dic.keys():
+            # need download lib.zip condition
+            if new_nam not in self.info.lib_dic.keys():                     # not in json
                 self.show_status_always(
                     'downloading %s, please wait patiently' % new_nam)
-            elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):
+            elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):  # new version
                 self.show_status_always(
                     'updating %s, please wait patiently' % new_nam)
-            else:
-                need_download = False
-            if not need_download:
+            elif not os.path.exists(seeed_path(new_nam)):                   # local not exists lib
+                self.show_status_always(
+                    'downloading %s, please wait patiently' % new_nam)
+            else:                                                           # not need download
                 continue
 
+            # download and zip
             if not download(seeed_path(new_nam), new['path']):
                 self.show_status_short_time(network_error)
                 return
@@ -600,6 +707,7 @@ class FirmwareUpdater(QThread):
             self.info.lib_dic.setdefault(new_nam, new_ver)
             has_new = True
 
+        # get lib or not
         if not has_new:
             return
 
@@ -724,14 +832,17 @@ class FirmwareUpdater(QThread):
 
     def check_new_firmware(self, file):
         self.show_status_always('check %s...' % file.local_config_name)
-        if not download(file.local_config, file.cloud_config, 3):
-            self.show_status_short_time('network failure')
+
+        if not self.confirmDownload(file.local_config, file.cloud_config, 3):
+            print("not check and download new firmware!")
             return False
+        else:
+            file.reload()
+
         if file.exist_firmware:
             self.show_status_short_time('')
             return True
 
-        file.reload()
         self.show_status_always('download %s...' % file.firmware_name)
 
         if not download(file.local_firmware, file.cloud_firmware, 3):
