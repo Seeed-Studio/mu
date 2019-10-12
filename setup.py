@@ -52,7 +52,7 @@ extras_require = {
         'pytest-faulthandler',
         'coverage',
     ],
-    'mu':{
+    'mu': {
         'requests',
     },
     'docs': [
