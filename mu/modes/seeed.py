@@ -494,8 +494,13 @@ class SeeedFileSystemPane(QFrame):
 class Downloader(QObject):
     finished = pyqtSignal(bool)
 
-    def __init__(self, des_path, source_path, 
-            reqTimeout=5, readTimeout=0, try_time=3):
+    def __init__(
+            self,
+            des_path,
+            source_path,
+            reqTimeout=5,
+            readTimeout=0,
+            try_time=3):
         super(Downloader, self).__init__()
         self.retStatus = False
         self.source_path = source_path
@@ -566,8 +571,9 @@ class Downloader(QObject):
                 self.readTimer.start(self.readTimeout)
             # write
             with open(self.des_path, 'w') as fp:
-                print("write file:%s" % fp.write(str(self.data, 
-                    encoding='utf-8')))
+                print(
+                    "write file:%s" % fp.write(
+                        str(self.data, encoding='utf-8')))
 
             print("finish download %s" % self.des_path)
             self.retStatus = True
@@ -670,8 +676,9 @@ class FirmwareUpdater(QThread):
 
     def check_new_lib(self):
         print('check lib')
-        if not self.confirmDownload(self.info.libaray_info_path, 
-            self.info.cloud_libaray_info_path):
+        if not self.confirmDownload(
+            self.info.libaray_info_path,
+                self.info.cloud_libaray_info_path):
             print("not check and download new lib!")
             return
 
@@ -938,11 +945,14 @@ class SeeedMode(MicroPythonMode):
             if mode.file_extensions:
                 extensions += mode.file_extensions
         extensions = set([e.lower() for e in extensions])
-        extensions = '*.{} *.{}'.format(' *.'.join(extensions), 
+        extensions = '*.{} *.{}'.format(
+            ' *.'.join(extensions),
             ' *.'.join(extensions).upper())
         folder = super().workspace_dir()
         allow_previous = False
-        path = self.view.get_load_path(folder, extensions, 
+        path = self.view.get_load_path(
+            folder,
+            extensions,
             allow_previous=allow_previous)
         if path:
             self.current_path = os.path.dirname(os.path.abspath(path))
