@@ -493,14 +493,16 @@ class SeeedFileSystemPane(QFrame):
 
 class Downloader(QObject):
     finished = pyqtSignal(bool)
-    def __init__(self, des_path, source_path, reqTimeout=5, readTimeout=0, try_time=3):
+
+    def __init__(self, des_path, source_path, 
+                    reqTimeout=5, readTimeout=0, try_time=3):
         super(Downloader, self).__init__()
         self.retStatus = False
         self.source_path = source_path
         self.des_path = des_path
         self.try_time = try_time
-        self.readTimeout = readTimeout*1000
-        self.reqTimeout = reqTimeout*1000
+        self.readTimeout = readTimeout * 1000
+        self.reqTimeout = reqTimeout * 1000
         self.data = b''
 
         # request timer, default 5 sec
@@ -526,7 +528,8 @@ class Downloader(QObject):
         print("[DEBUG]------Request")
         try:
             if self.try_time:
-                self.reply = self.networkManager.get(QNetworkRequest(QUrl(self.source_path)))
+                self.reply = self.networkManager.get(\
+                            QNetworkRequest(QUrl(self.source_path)))
                 self.reply.finished.connect(self.onFinished)
                 self.reply.readyRead.connect(self.onReadyRead)
                 self.try_time = self.try_time - 1
@@ -548,9 +551,9 @@ class Downloader(QObject):
         self.requestAgain()
 
     def onReadyRead(self):
-        data = self.reply.read(16*1024)
+        data = self.reply.read(16 * 1024)
         self.data += data
-        print('onReadyRead number: %s'%len(data))
+        print('onReadyRead number: %s' % len(data))
 
     def onFinished(self):
         try:
@@ -563,7 +566,8 @@ class Downloader(QObject):
                 self.readTimer.start(self.readTimeout)
             # write
             with open(self.des_path, 'w') as fp:
-                print("write file:%s"%fp.write(str(self.data, encoding='utf-8')))
+                print("write file:%s" % fp.write(str(self.data, 
+                                                encoding='utf-8')))
 
             print("finish download %s" % self.des_path)
             self.retStatus = True
@@ -572,11 +576,12 @@ class Downloader(QObject):
             self.requestAgain()
             self.reqTimer.start(self.reqTimeout)
             self.readTimer.stop()
-            print("Exception happen in Function[onFinished]: "+str(e))
+            print("Exception happen in Function[onFinished]: " + str(e))
 
 
 def strptime(value):
     return datetime.datetime.strptime(value, '%Y-%m-%d')
+
 
 # The worst-case scenario is timeout*try_time seconds
 def download(des_path, source_path, timeout=5, try_time=3):
@@ -649,7 +654,8 @@ class FirmwareUpdater(QThread):
     def show_status_always(self, msg):
         self.show_status.emit(msg, 1000 * 1000)
 
-    # async function, ask user need try download again, until successful or refused.
+    # async function, ask user need try download again, \
+    # until successful or refused
     def confirmDownload(self, des_path, source_path, timeout=5, try_time=3):
         while True:
             downloader = Downloader(des_path, source_path, timeout, try_time)
@@ -664,7 +670,7 @@ class FirmwareUpdater(QThread):
 
     def check_new_lib(self):
         print('check lib')
-        if not self.confirmDownload(self.info.libaray_info_path,
+        if not self.confirmDownload(self.info.libaray_info_path, \
                             self.info.cloud_libaray_info_path):
             print("not check and download new lib!")
             return
@@ -682,16 +688,16 @@ class FirmwareUpdater(QThread):
             new_ver = new['version']
 
             # need download lib.zip condition
-            if new_nam not in self.info.lib_dic.keys():                     # not in json
+            if new_nam not in self.info.lib_dic.keys():
                 self.show_status_always(
                     'downloading %s, please wait patiently' % new_nam)
-            elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):  # new version
+            elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):
                 self.show_status_always(
                     'updating %s, please wait patiently' % new_nam)
-            elif not os.path.exists(seeed_path(new_nam)):                   # local not exists lib
+            elif not os.path.exists(seeed_path(new_nam)):
                 self.show_status_always(
                     'downloading %s, please wait patiently' % new_nam)
-            else:                                                           # not need download
+            else:
                 continue
 
             # download and zip
@@ -932,16 +938,15 @@ class SeeedMode(MicroPythonMode):
             if mode.file_extensions:
                 extensions += mode.file_extensions
         extensions = set([e.lower() for e in extensions])
-        extensions = '*.{} *.{}'.format(' *.'.join(extensions),
+        extensions = '*.{} *.{}'.format(' *.'.join(extensions), \
                                         ' *.'.join(extensions).upper())
         folder = super().workspace_dir()
         allow_previous = False
-        path = self.view.get_load_path(folder, extensions,
+        path = self.view.get_load_path(folder, extensions, \
                                         allow_previous=allow_previous)
         if path:
             self.current_path = os.path.dirname(os.path.abspath(path))
             self.editor._load(path)
-
 
     def __set_all_button(self, state):
         print('button Enable=' + str(state))
