@@ -39,8 +39,7 @@ from PyQt5.QtCore import pyqtSignal, QThread, QTimer, Qt, QUrl, \
 from PyQt5.QtWidgets import QMessageBox, \
     QMenu, QTreeWidget, QTreeWidgetItem, QAbstractItemView
 from PyQt5.QtWidgets import QGridLayout, QLabel, QFrame
-from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, \
-    QNetworkReply
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
 logger = logging.getLogger(__name__)
 
