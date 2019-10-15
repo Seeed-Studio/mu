@@ -498,7 +498,7 @@ class Downloader(QObject):
             des_path,
             source_path,
             reqTimeout=5,
-            readTimeout=0,
+            readTimeout=10,
             try_time=3):
         super(Downloader, self).__init__()
         self.retStatus = False
@@ -507,7 +507,7 @@ class Downloader(QObject):
         self.try_time = try_time
         self.readTimeout = readTimeout * 1000
         self.reqTimeout = reqTimeout * 1000
-        self.data = b''
+        self.data = None
 
         # request timer, default 5 sec
         self.reqTimer = QTimer()
@@ -519,23 +519,25 @@ class Downloader(QObject):
         self.networkManager = QNetworkAccessManager()
         self.request()
 
+        self.fp = open(self.des_path, 'wb')
         self.reqTimer.start(self.reqTimeout)
         self.eventLoop = QEventLoop()
         self.finished.connect(self.eventLoop.quit)
         self.eventLoop.exec_()
+        self.fp.close()
 
     def requestAgain(self):
         self.reply.close()
         self.request()
 
     def request(self):
-        print("[DEBUG]------Request")
+        # print("[DEBUG]------Request")
         try:
             if self.try_time:
                 self.reply = self.networkManager.get(
                     QNetworkRequest(QUrl(self.source_path)))
-                self.reply.finished.connect(self.onFinished)
-                self.reply.readyRead.connect(self.onReadyRead)
+                self.reply.readyRead.connect(self.startRead)
+                self.reply.downloadProgress.connect(self.onProgress)
                 self.try_time = self.try_time - 1
             else:
                 self.finished.emit(self.retStatus)
@@ -547,41 +549,50 @@ class Downloader(QObject):
 
     def onReadTimeOut(self):
         # request again
+        print("read time out")
         self.readTimer.stop()
-        self.request()
+        self.requestAgain()
         self.reqTimer.start(self.reqTimeout)
 
     def onReqTimeOut(self):
         self.requestAgain()
 
-    def onReadyRead(self):
-        data = self.reply.read(16 * 1024)
-        self.data += data
-        print('onReadyRead number: %s' % len(data))
+    def startRead(self):
+        self.reqTimer.stop()
+        self.reply.readyRead.disconnect(self.startRead)
 
-    def onFinished(self):
-        try:
-            if len(self.data) <= 0:
-                e = Exception("Invaild Data, Request again")
-                raise e
+    def onProgress(self, cur, total):
+        # print("%s---%s"%(cur, total))
+        self.readTimer.start(self.readTimeout)
+        if self.writeFile() is False:
+            self.endRead(False)
+        if cur == total and total > 0:
+            self.endRead(True)
+        self.readTimer.stop()
 
-            self.reqTimer.stop()
-            if self.readTimeout:
-                self.readTimer.start(self.readTimeout)
-            # write
-            with open(self.des_path, 'w') as fp:
-                print(
-                    "write file:%s" % fp.write(
-                        str(self.data, encoding='utf-8')))
-
+    def endRead(self, successful):
+        if successful:
             print("finish download %s" % self.des_path)
             self.retStatus = True
             self.finished.emit(self.retStatus)
-        except Exception as e:
+        else:
             self.requestAgain()
             self.reqTimer.start(self.reqTimeout)
-            self.readTimer.stop()
-            print("Exception happen in Function[onFinished]: " + str(e))
+
+    def writeFile(self):
+        try:
+            data = self.reply.readAll()
+            if data:
+                readLen = len(data)
+                if readLen <= 0:
+                    e = Exception("Invaild Data, Request again")
+                    raise e
+                self.fp.write(data)
+                # print("writelen:%s"%writelen)
+            return True
+        except Exception as e:
+            print("Exception happen in Function[writeFile]: " + str(e))
+            return False
 
 
 def strptime(value):
@@ -707,7 +718,7 @@ class FirmwareUpdater(QThread):
                 continue
 
             # download and zip
-            if not download(seeed_path(new_nam), new['path']):
+            if not self.confirmDownload(seeed_path(new_nam), new['path']):
                 self.show_status_short_time(network_error)
                 return
 
@@ -857,7 +868,9 @@ class FirmwareUpdater(QThread):
 
         self.show_status_always('download %s...' % file.firmware_name)
 
-        if not download(file.local_firmware, file.cloud_firmware, 3):
+        if not self.confirmDownload(
+            file.local_firmware,
+                file.cloud_firmware, 3):
             self.show_status_short_time('%s download failure' %
                                         file.firmware_name)
             return False
