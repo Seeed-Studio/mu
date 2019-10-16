@@ -55,7 +55,7 @@ test: clean
 coverage: clean
 	pytest --random-order --cov-config .coveragerc --cov-report term-missing --cov=mu tests/
 
-check: clean flake8 coverage
+check: clean flake8 #coverage
 
 dist: check
 	@echo "\nChecks pass, good to package..."

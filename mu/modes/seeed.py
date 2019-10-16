@@ -29,14 +29,16 @@ import requests
 from mu.contrib.microfs import execute
 from mu.modes.api import SEEED_APIS, SHARED_APIS
 from mu.modes.base import MicroPythonMode, FileManager
-from mu.interface.panes import CHARTS, \
+from mu.interface.panes import CHARTS, PANE_ZOOM_SIZES, \
     MicroPythonDeviceFileList, FileSystemPane
+from mu.interface.themes import Font, DEFAULT_FONT_SIZE
 from mu.resources import load_icon, path
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 from PyQt5.QtCore import pyqtSignal, QThread, QTimer, Qt, QUrl, \
     QObject, QEventLoop
 from PyQt5.QtWidgets import QMessageBox, \
     QMenu, QTreeWidget, QTreeWidgetItem, QAbstractItemView
+from PyQt5.QtWidgets import QGridLayout, QLabel, QFrame
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
 logger = logging.getLogger(__name__)
@@ -345,7 +347,7 @@ class ArdupyDeviceFileList(MicroPythonDeviceFileList):
         logger.info(msg)
 
 
-class SeeedFileSystemPane():
+class SeeedFileSystemPane1():
 
     def __init__(self):
         pass
@@ -392,6 +394,149 @@ class SeeedFileSystemPane():
         else:
             self.fsp.local_fs.need_update_tree = True
         self.fsp.enable()
+
+
+class SeeedFileSystemPane(QFrame):
+    set_message = pyqtSignal(str)
+    set_warning = pyqtSignal(str)
+    list_files = pyqtSignal()
+    open_file = pyqtSignal(str)
+
+    def __init__(self, home):
+        super().__init__()
+        self.home = home
+        self.font = Font().load()
+        microbit_fs = ArdupyDeviceFileList(home)
+        local_fs = LocalFileTree(home)
+
+        @local_fs.open_file.connect
+        def on_open_file(file):
+            # Bubble the signal up
+            self.open_file.emit(file)
+
+        layout = QGridLayout()
+        self.setLayout(layout)
+        microbit_label = QLabel()
+        microbit_label.setText(_('Files on your device:'))
+        local_label = QLabel()
+        local_label.setText(_('Files on your computer:'))
+        self.microbit_label = microbit_label
+        self.local_label = local_label
+        self.microbit_fs = microbit_fs
+        self.local_fs = local_fs
+        self.set_font_size()
+        layout.addWidget(microbit_label, 0, 0)
+        layout.addWidget(local_label, 0, 1)
+        layout.addWidget(microbit_fs, 1, 0)
+        layout.addWidget(local_fs, 1, 1)
+        self.microbit_fs.disable.connect(self.disable)
+        self.microbit_fs.set_message.connect(self.show_message)
+        self.local_fs.disable.connect(self.disable)
+        self.local_fs.enable.connect(self.enable)
+        self.local_fs.set_message.connect(self.show_message)
+
+    def disable(self):
+        """
+        Stops interaction with the list widgets.
+        """
+        self.microbit_fs.setDisabled(True)
+        self.local_fs.setDisabled(True)
+        self.microbit_fs.setAcceptDrops(False)
+        self.local_fs.setAcceptDrops(False)
+
+    def enable(self):
+        """
+        Allows interaction with the list widgets.
+        """
+        self.microbit_fs.setDisabled(False)
+        self.local_fs.setDisabled(False)
+        self.microbit_fs.setAcceptDrops(True)
+        self.local_fs.setAcceptDrops(True)
+
+    def show_message(self, message):
+        """
+        Emits the set_message signal.
+        """
+        self.set_message.emit(message)
+
+    def show_warning(self, message):
+        """
+        Emits the set_warning signal.
+        """
+        self.set_warning.emit(message)
+
+    def on_ls(self, microbit_files):
+        """
+        Displays a list of the files on the seeed board.
+
+        Since listing files is always the final event in any interaction
+        between Mu and the seeed board, this enables the controls again for
+        further interactions to take place.
+        """
+        self.microbit_fs.clear()
+        for f in microbit_files:
+            self.microbit_fs.addItem(f)
+
+        if self.local_fs.need_update_tree:
+            self.local_fs.clear()
+            self.local_fs.ls()
+        else:
+            self.local_fs.need_update_tree = True
+        self.enable()
+
+    def on_ls_fail(self):
+        """
+        Fired when listing files fails.
+        """
+        self.show_warning(_("There was a problem gettingthe list of files on "
+                            "the device. Please check Mu's logs for "
+                            "technical information. Alternatively, try "
+                            "unplugging/plugging-in your device and/or "
+                            "restarting Mu."))
+        self.disable()
+
+    def on_put_fail(self, filename):
+        """
+        Fired when the referenced file cannot be copied onto the device.
+        """
+        self.show_warning(_("There was a problem copying the file '{}' onto "
+                            "the device. Please check Mu's logs for "
+                            "more information.").format(filename))
+
+    def on_delete_fail(self, filename):
+        """
+        Fired when a deletion on the device for the given file failed.
+        """
+        self.show_warning(_("There was a problem deleting '{}' from the "
+                            "device. Please check Mu's logs for "
+                            "more information.").format(filename))
+
+    def on_get_fail(self, filename):
+        """
+        Fired when getting the referenced file on the device failed.
+        """
+        self.show_warning(_("There was a problem getting '{}' from the "
+                            "device. Please check Mu's logs for "
+                            "more information.").format(filename))
+
+    def set_theme(self, theme):
+        pass
+
+    def set_font_size(self, new_size=DEFAULT_FONT_SIZE):
+        """
+        Sets the font size for all the textual elements in this pane.
+        """
+        self.font.setPointSize(new_size)
+        self.microbit_label.setFont(self.font)
+        self.local_label.setFont(self.font)
+        self.microbit_fs.setFont(self.font)
+        self.local_fs.setFont(self.font)
+
+    def set_zoom(self, size):
+        """
+        Set the current zoom level given the "t-shirt" size.
+        """
+        self.set_font_size(PANE_ZOOM_SIZES[size])
 
 
 class Downloader(QObject):
@@ -850,8 +995,8 @@ class SeeedMode(MicroPythonMode):
         )
         self.invoke.info = SeeedMode.info
         self.invoke.start()
-        # self.seeedfsp = SeeedFileSystemPane()
-        # self.view.default_pane = self.seeedfsp.paneInstance
+        self.seeedfsp = SeeedFileSystemPane1()
+        self.view.default_pane = self.seeedfsp.paneInstance
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
         editor.detect_new_device_handle = \
