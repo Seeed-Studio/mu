@@ -79,7 +79,7 @@ deploy:
   upload-dir: $TRAVIS_OS_NAME
   acl: public_read
   on:
-    repo: mu-editor/mu
+    repo: gobuyun/mu
     branch: [master]
     condition: $TRAVIS_OS_NAME = "osx"
 

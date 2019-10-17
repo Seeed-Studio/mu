@@ -1206,7 +1206,7 @@ class SeeedMode(MicroPythonMode):
         if not self.repl:
             super().toggle_repl(None)
         if self.repl:
-            self.set_buttons(run=False, files=False, repl=True, plotter=True)
+            self.set_buttons(run=True, files=False, repl=True, plotter=True)
             self.in_running_script = True
             self.view.repl_pane.send_commands(python_script)
 
