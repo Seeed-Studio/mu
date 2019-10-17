@@ -8,6 +8,14 @@ from .esp import ESP_APIS
 from .flask import FLASK_APIS
 from .seeed import SEEED_APIS
 
-__all__ = ['ADAFRUIT_APIS', 'MICROBIT_APIS', 'PYTHON3_APIS', 'PI_APIS',
-           'SHARED_APIS', 'PYGAMEZERO_APIS', 'ESP_APIS', 'FLASK_APIS',
-           'SEEED_APIS']
+__all__ = [
+    "ADAFRUIT_APIS",
+    "MICROBIT_APIS",
+    "PYTHON3_APIS",
+    "PI_APIS",
+    "SHARED_APIS",
+    "PYGAMEZERO_APIS",
+    "ESP_APIS",
+    "FLASK_APIS",
+    "SEEED_APIS",
+]

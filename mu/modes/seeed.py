@@ -995,13 +995,11 @@ class SeeedMode(MicroPythonMode):
         )
         self.invoke.info = SeeedMode.info
         self.invoke.start()
-        self.seeedfsp = SeeedFileSystemPane1()
-        self.view.default_pane = self.seeedfsp.paneInstance
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
-        editor.detect_new_device_handle = \
+        editor.addDeviceCallback = \
             self.__asyc_detect_new_device_handle
-        editor.disconnected_handle = \
+        editor.rmDeviceCallback = \
             self.__asyc_disconnected_handle
 
     def __load(self, *args, default_path=None):
@@ -1043,7 +1041,8 @@ class SeeedMode(MicroPythonMode):
         self.msg.setText(text)
         self.msg.show()
 
-    def __asyc_disconnected_handle(self, type):
+    def __asyc_disconnected_handle(self, device):
+        type = device[0]
         if self.fs:
             self.toggle_files(None)
         if self.plotter:
@@ -1054,12 +1053,13 @@ class SeeedMode(MicroPythonMode):
             self.__set_all_button(False)
         self.in_running_script = False
 
-    def __asyc_detect_new_device_handle(self, device_name):
+    def __asyc_detect_new_device_handle(self, device):
+        device_name = device[1]
         self.__set_all_button(False)
         self.info.has_firmware = False
         self.info.board_id = None
         self.info.board_name = device_name
-        available_ports = QSerialPortInfo.availablePorts()
+        port = QSerialPortInfo(device_name)
 
         def match(pvid, ids):
             for valid in ids:
@@ -1068,23 +1068,20 @@ class SeeedMode(MicroPythonMode):
                     return True
             return False
 
-        for port in available_ports:
-            pvid = (
-                port.vendorIdentifier(),
-                port.productIdentifier()
-            )
+        pvid = (
+            port.vendorIdentifier(),
+            port.productIdentifier()
+        )
 
-            # need match the seeed board pid vid
-            if match(pvid, self.info.board_normal):
-                self.invoke.in_bootload_mode = False
-                self.invoke.detected = True
-                print('detect a normal mode borad')
-                break
-            if match(pvid, self.info.board_boot):
-                self.invoke.in_bootload_mode = True
-                self.invoke.detected = True
-                print('detect a bootload mode borad')
-                break
+        # need match the seeed board pid vid
+        if match(pvid, self.info.board_normal):
+            self.invoke.in_bootload_mode = False
+            self.invoke.detected = True
+            print('detect a normal mode borad')
+        if match(pvid, self.info.board_boot):
+            self.invoke.in_bootload_mode = True
+            self.invoke.detected = True
+            print('detect a bootload mode borad')
 
     def actions(self):
         """
@@ -1264,13 +1261,45 @@ class SeeedMode(MicroPythonMode):
             except Exception as ex:
                 print(ex)
 
+        # replace to US panes
+        def add_filesystem(home, file_manager, board_name):
+            self.fs = self.view.add_filesystem(home,
+                                               file_manager,
+                                               board_name)
+            # reset panes
+            self.fs.deleteLater()
+            self.fs = None
+            self.fs = SeeedFileSystemPane(home)
+            # setup panes
+            self.fs.setFocus()
+            self.view.fs_pane = self.fs
+            self.view.fs.setWidget(self.fs)
+            # connect
+            file_manager.on_list_files.connect(self.fs.on_ls)
+            file_manager.on_put_file.connect(self.fs.microbit_fs.on_put)
+            file_manager.on_delete_file.connect(self.fs.microbit_fs.on_delete)
+            file_manager.on_get_file.connect(self.fs.local_fs.on_get)
+            file_manager.on_list_fail.connect(self.fs.on_ls_fail)
+            file_manager.on_put_fail.connect(self.fs.on_put_fail)
+            file_manager.on_delete_fail.connect(self.fs.on_delete_fail)
+            file_manager.on_get_fail.connect(self.fs.on_get_fail)
+            self.fs.open_file.connect(self.view.open_file)
+            self.fs.list_files.connect(file_manager.ls)
+            self.fs.microbit_fs.put.connect(file_manager.put)
+            self.fs.microbit_fs.delete.connect(file_manager.delete)
+            self.fs.microbit_fs.list_files.connect(file_manager.ls)
+            self.fs.local_fs.get.connect(file_manager.get)
+            self.fs.local_fs.list_files.connect(file_manager.ls)
+            self.view.connect_zoom(self.fs)
+            return self.fs
+
         self.file_manager_thread = QThread(self)
         self.file_manager = FileManager(device_port)
         self.file_manager.moveToThread(self.file_manager_thread)
         self.file_manager_thread.started.connect(on_start)
-        self.fs = self.view.add_filesystem(self.workspace_dir(),
-                                           self.file_manager,
-                                           _("Seeed's line of boards"))
+        self.fs = add_filesystem(self.workspace_dir(),
+                                 self.file_manager,
+                                 _("Seeed's line of boards"))
         self.fs.set_message.connect(self.editor.show_status_message)
         self.fs.set_warning.connect(self.view.show_message)
         self.file_manager_thread.start()
