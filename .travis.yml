@@ -65,6 +65,10 @@ script:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then zip -r -X dist/mu-editor.zip macOS/mu-editor.app; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then du -sk dist/; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then mv dist/mu-editor.zip dist/mu-editor_$(date '+%Y-%m-%d_%H_%M')_${TRAVIS_BRANCH}_${TRAVIS_COMMIT:0:7}.zip; fi
+  - curl --upload-file dist/mu-editor_$(date '+%Y-%m-%d_%H_%M')_${TRAVIS_BRANCH}_${TRAVIS_COMMIT:0:7}.zip https://transfer.sh/mu-editor_$(date '+%Y-%m-%d_%H_%M')_${TRAVIS_BRANCH}_${TRAVIS_COMMIT:0:7}.zip | tee -a output_urls.txt && echo "" >> output_urls.txt
+
+  # Print all uploaded files URLs
+  - cat output_urls.txt
 
 # Deploy the build version in an S3 bucket
 deploy:
@@ -79,7 +83,7 @@ deploy:
   upload-dir: $TRAVIS_OS_NAME
   acl: public_read
   on:
-    repo: gobuyun/mu
+    repo: mu-editor/mu
     branch: [master]
     condition: $TRAVIS_OS_NAME = "osx"
 
