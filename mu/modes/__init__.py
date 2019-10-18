@@ -6,6 +6,7 @@ from .pygamezero import PyGameZeroMode
 from .esp import ESPMode
 from .web import WebMode
 from .seeed import SeeedMode
+
 __all__ = [
     "PythonMode",
     "CircuitPythonMode",
@@ -14,5 +15,5 @@ __all__ = [
     "PyGameZeroMode",
     "ESPMode",
     "WebMode",
-    "SeeedMode"
+    "SeeedMode",
 ]

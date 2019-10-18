@@ -21,45 +21,93 @@ import time
 import json
 import datetime
 import os
+import sys
 import platform
 import subprocess
 import shutil
 import zipfile
-import requests
 from mu.contrib.microfs import execute
 from mu.modes.api import SEEED_APIS, SHARED_APIS
 from mu.modes.base import MicroPythonMode, FileManager
-from mu.interface.panes import CHARTS, PANE_ZOOM_SIZES, \
-    MicroPythonDeviceFileList, FileSystemPane
+from mu.interface.panes import (
+    CHARTS,
+    PANE_ZOOM_SIZES,
+    MicroPythonDeviceFileList,
+)
 from mu.interface.themes import Font, DEFAULT_FONT_SIZE
 from mu.resources import load_icon, path
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
-from PyQt5.QtCore import pyqtSignal, QThread, QTimer, Qt, QUrl, \
-    QObject, QEventLoop
-from PyQt5.QtWidgets import QMessageBox, \
-    QMenu, QTreeWidget, QTreeWidgetItem, QAbstractItemView
+from PyQt5.QtCore import (
+    pyqtSignal,
+    QThread,
+    QTimer,
+    Qt,
+    QUrl,
+    QObject,
+    QEventLoop,
+)
+from PyQt5.QtWidgets import (
+    QMessageBox,
+    QMenu,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QAbstractItemView,
+)
 from PyQt5.QtWidgets import QGridLayout, QLabel, QFrame
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
 logger = logging.getLogger(__name__)
 
 
+inc = '''
+include mu/*
+include README.rst
+include CHANGES.rst
+include LICENSE
+include conf/*
+include mu/resources/css/*
+include mu/resources/images/*
+include mu/resources/fonts/*
+include mu/resources/pygamezero/*
+recursive-include mu/resources/web *
+include run.py
+recursive-include mu/locale *
+'''
+
+
+def writeEnvrionmentVar():
+    print("writeEnvrionmentVar")
+    filePath = os.path.dirname(os.path.abspath(sys.argv[0]))
+    filePath = os.path.join(filePath, "MANIFEST.in")
+    file = open(filePath, 'w')
+    file.write('include mu/resources/seeed/*\n')
+    if os.name == 'posix':
+        if platform.uname().system == 'Darwin':
+            file.write('include mu/resources/seeed/tools-darwin/*' + inc)
+        else:
+            file.write('include mu/resources/seeed/tools-posix/*' + inc)
+    elif os.name == 'nt':
+        print("write nt")
+        file.write('include mu/resources/seeed/tools-win/*' + inc)
+    file.close()
+
+
 def seeed_path(child):
-    return path(child, 'seeed/')
+    return path(child, "seeed/")
 
 
 class Config:
     def __init__(self, name):
         self.local_config_name = name
         self.local_config = seeed_path(name)
-        self.cloud_config = 'https://seeed-studio.github.io/ArduPy/' + name
+        self.cloud_config = "https://seeed-studio.github.io/ArduPy/" + name
         self.json = {}
         if os.path.exists(self.local_config):
             self.reload()
 
     def reload(self):
         try:
-            self.json = json.loads(open(self.local_config, 'r').read())
+            self.json = json.loads(open(self.local_config, "r").read())
         except Exception as e:
             self.json = {}
             print(e)
@@ -70,11 +118,11 @@ class Config:
 
     @property
     def version(self):
-        return strptime(self.json['firmware']['version'])
+        return strptime(self.json["firmware"]["version"])
 
     @property
     def cloud_firmware(self):
-        return self.json['firmware']['path']
+        return self.json["firmware"]["path"]
 
     @property
     def local_firmware(self):
@@ -82,7 +130,7 @@ class Config:
 
     @property
     def firmware_name(self):
-        return self.json['firmware']['name']
+        return self.json["firmware"]["name"]
 
 
 class Info:
@@ -95,39 +143,39 @@ class Info:
     com = None
     board_id = None
     board_name = None
-    config_fmt = 'config-%s.json'
+    config_fmt = "config-%s.json"
 
     def __init__(self):
-        inf = open(self.info_path, 'r')
+        inf = open(self.info_path, "r")
         inf = json.loads(inf.read())
         self.lib_dic = {}
         self.board_boot.clear()
         self.board_normal.clear()
         self.dic_config.clear()
 
-        for board in inf['boot']:
-            name = board['type']
-            pvid = board['pvid']
+        for board in inf["boot"]:
+            name = board["type"]
+            pvid = board["pvid"]
             keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_boot.append(keyv)
 
-        for board in inf['normal']:
-            name = board['type']
-            pvid = board['pvid']
+        for board in inf["normal"]:
+            name = board["type"]
+            pvid = board["pvid"]
             keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_normal.append(keyv)
 
-        inf = open(self.info_path, 'r')
+        inf = open(self.info_path, "r")
         inf = json.loads(inf.read())
 
-        for lib in inf['lib']:
-            self.lib_dic.setdefault(lib['name'], lib['version'])
+        for lib in inf["lib"]:
+            self.lib_dic.setdefault(lib["name"], lib["version"])
 
     @property
     def cloud_libaray_info_path(self):
-        return 'https://seeed-studio.github.io/ArduPy/libaray.json'
+        return "https://seeed-studio.github.io/ArduPy/libaray.json"
 
     @property
     def current_config_name(self):
@@ -135,43 +183,45 @@ class Info:
 
     @property
     def short_device_name(self):
-        if os.name == 'posix':
-            return self.board_name[self.board_name.rindex('/') + 1:]
+        if os.name == "posix":
+            return self.board_name[self.board_name.rindex("/") + 1 :]
         else:
             return self.board_name
 
     def bossac(self, local_firmware):
         def path_tools(child):
-            if os.name == 'posix':
-                if platform.uname().system == 'Darwin':
-                    return path(child, 'seeed/tools-darwin/')
-                return path(child, 'seeed/tools-linux/')
+            if os.name == "posix":
+                if platform.uname().system == "Darwin":
+                    return path(child, "seeed/tools-darwin/")
+                return path(child, "seeed/tools-linux/")
             else:
-                return path(child, 'seeed/tools-win/')
+                return path(child, "seeed/tools-win/")
 
-        cmd = '-i -d --port=%s -U true -i -e -w -v "%s" -R' \
-            % (self.short_device_name, local_firmware)
-        cmd = '"%sbossac" %s' % (path_tools(''), cmd)
+        cmd = '-i -d --port=%s -U true -i -e -w -v "%s" -R' % (
+            self.short_device_name,
+            local_firmware,
+        )
+        cmd = '"%sbossac" %s' % (path_tools(""), cmd)
         print(cmd)
         return cmd
 
     @property
     def stty(self):
-        if os.name == 'posix':
-            if platform.uname().system == 'Darwin':
-                return 'stty -f ' + self.board_name + ' %d'
-            return 'stty -F ' + self.board_name + ' %d'
-        elif os.name == 'nt':
-            return 'MODE ' + self.board_name + ':BAUD=%d PARITY=N DATA=8'
-        return ['echo not support']
+        if os.name == "posix":
+            if platform.uname().system == "Darwin":
+                return "stty -f " + self.board_name + " %d"
+            return "stty -F " + self.board_name + " %d"
+        elif os.name == "nt":
+            return "MODE " + self.board_name + ":BAUD=%d PARITY=N DATA=8"
+        return ["echo not support"]
 
     @property
     def info_path(self):
-        return seeed_path('info.json')
+        return seeed_path("info.json")
 
     @property
     def libaray_info_path(self):
-        return seeed_path('libaray.json')
+        return seeed_path("libaray.json")
 
 
 class ConfirmFlag:
@@ -221,12 +271,12 @@ class LocalFileTree(QTreeWidget):
     def __init__(self, home, parent=None):
         super(LocalFileTree, self).__init__(parent)
         self.home = home
-        self.setStyleSheet('border:1px solid darkgray;')
+        self.setStyleSheet("border:1px solid darkgray;")
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.header().setVisible(False)
-        self.__icon_firmware = load_icon('firmware.png')
-        self.__icon_folder = load_icon('folder.png')
+        self.__icon_firmware = load_icon("firmware.png")
+        self.__icon_folder = load_icon("folder.png")
 
     def ls(self):
         self.__build_list(self, self.home)
@@ -235,8 +285,9 @@ class LocalFileTree(QTreeWidget):
         """
         Fired when the get event is completed for the given filename.
         """
-        msg = _("Successfully copied '{}' "
-                "from the ardupy to your computer.").format(ardupy_file)
+        msg = _(
+            "Successfully copied '{}' " "from the ardupy to your computer."
+        ).format(ardupy_file)
         self.set_message.emit(msg)
         self.list_files.emit()
 
@@ -301,7 +352,7 @@ class ArdupyDeviceFileList(MicroPythonDeviceFileList):
         if not isinstance(source, LocalFileTree):
             return
         if not item.is_file:
-            msg = 'Not successfuly, current version just support copy file.'
+            msg = "Not successfuly, current version just support copy file."
             logger.info(msg)
             self.set_message.emit(msg)
             return
@@ -310,21 +361,26 @@ class ArdupyDeviceFileList(MicroPythonDeviceFileList):
         path = os.path.join(item.dir, name)
 
         if not os.path.exists(path):
-            self.set_message.emit('Sorry, ' + name +
-                                  ' not exist in current folder, ' +
-                                  'place reopen file panel.')
+            self.set_message.emit(
+                "Sorry, "
+                + name
+                + " not exist in current folder, "
+                + "place reopen file panel."
+            )
             return
 
-        if self.findItems(name, Qt.MatchExactly) and \
-                not self.show_confirm_overwrite_dialog():
+        if (
+            self.findItems(name, Qt.MatchExactly)
+            and not self.show_confirm_overwrite_dialog()
+        ):
             return
 
         try:
-            msg = execute([
-                'import os',
-                'print(os.statvfs(\'/\'), end=\'\')',
-            ], ArdupyDeviceFileList.serial)
-            msg = str(msg[0], 'utf-8')
+            msg = execute(
+                ["import os", "print(os.statvfs('/'), end='')"],
+                ArdupyDeviceFileList.serial,
+            )
+            msg = str(msg[0], "utf-8")
             print(msg)
         except Exception as ex:
             print(ex)
@@ -332,7 +388,7 @@ class ArdupyDeviceFileList(MicroPythonDeviceFileList):
             self.set_message.emit(msg)
             return
 
-        val = msg.split(', ')
+        val = msg.split(", ")
         avaliable_byte = int(val[1]) * int(val[4])
         file_size = os.path.getsize(path)
 
@@ -345,55 +401,6 @@ class ArdupyDeviceFileList(MicroPythonDeviceFileList):
             msg = "Fail! target device doesn't have enough space."
             self.set_message.emit(msg)
         logger.info(msg)
-
-
-class SeeedFileSystemPane1():
-
-    def __init__(self):
-        pass
-
-    def paneInstance(self, home):
-        microbit_fs = ArdupyDeviceFileList(home)
-        local_fs = LocalFileTree(home)
-        # replace variable
-        self.fsp = FileSystemPane(home)
-        self.fsp.on_ls = self.on_ls
-        _microbit_fs = self.fsp.microbit_fs
-        _local_fs = self.fsp.local_fs
-        self.fsp.microbit_fs = microbit_fs
-        self.fsp.local_fs = local_fs
-        # replace UI
-        self.fsp.layout().replaceWidget(_microbit_fs, self.fsp.microbit_fs)
-        self.fsp.layout().replaceWidget(_local_fs, self.fsp.local_fs)
-        _microbit_fs = None
-        _local_fs = None
-        # connect
-        self.fsp.microbit_fs.disable.connect(self.fsp.disable)
-        self.fsp.microbit_fs.set_message.connect(self.fsp.show_message)
-        self.fsp.local_fs.enable.connect(self.fsp.enable)
-        self.fsp.local_fs.open_file.connect(self.fsp.open_file)
-        self.fsp.local_fs.disable.connect(self.fsp.disable)
-        self.fsp.local_fs.set_message.connect(self.fsp.show_message)
-        return self.fsp
-
-    def on_ls(self, microbit_files):
-        """
-        Displays a list of the files on the seeed board.
-
-        Since listing files is always the final event in any interaction
-        between Mu and the seeed board, this enables the controls again for
-        further interactions to take place.
-        """
-        self.fsp.microbit_fs.clear()
-        for f in microbit_files:
-            self.fsp.microbit_fs.addItem(f)
-
-        if self.fsp.local_fs.need_update_tree:
-            self.fsp.local_fs.clear()
-            self.fsp.local_fs.ls()
-        else:
-            self.fsp.local_fs.need_update_tree = True
-        self.fsp.enable()
 
 
 class SeeedFileSystemPane(QFrame):
@@ -417,9 +424,9 @@ class SeeedFileSystemPane(QFrame):
         layout = QGridLayout()
         self.setLayout(layout)
         microbit_label = QLabel()
-        microbit_label.setText(_('Files on your device:'))
+        microbit_label.setText(_("Files on your device:"))
         local_label = QLabel()
-        local_label.setText(_('Files on your computer:'))
+        local_label.setText(_("Files on your computer:"))
         self.microbit_label = microbit_label
         self.local_label = local_label
         self.microbit_fs = microbit_fs
@@ -488,36 +495,52 @@ class SeeedFileSystemPane(QFrame):
         """
         Fired when listing files fails.
         """
-        self.show_warning(_("There was a problem gettingthe list of files on "
-                            "the device. Please check Mu's logs for "
-                            "technical information. Alternatively, try "
-                            "unplugging/plugging-in your device and/or "
-                            "restarting Mu."))
+        self.show_warning(
+            _(
+                "There was a problem gettingthe list of files on "
+                "the device. Please check Mu's logs for "
+                "technical information. Alternatively, try "
+                "unplugging/plugging-in your device and/or "
+                "restarting Mu."
+            )
+        )
         self.disable()
 
     def on_put_fail(self, filename):
         """
         Fired when the referenced file cannot be copied onto the device.
         """
-        self.show_warning(_("There was a problem copying the file '{}' onto "
-                            "the device. Please check Mu's logs for "
-                            "more information.").format(filename))
+        self.show_warning(
+            _(
+                "There was a problem copying the file '{}' onto "
+                "the device. Please check Mu's logs for "
+                "more information."
+            ).format(filename)
+        )
 
     def on_delete_fail(self, filename):
         """
         Fired when a deletion on the device for the given file failed.
         """
-        self.show_warning(_("There was a problem deleting '{}' from the "
-                            "device. Please check Mu's logs for "
-                            "more information.").format(filename))
+        self.show_warning(
+            _(
+                "There was a problem deleting '{}' from the "
+                "device. Please check Mu's logs for "
+                "more information."
+            ).format(filename)
+        )
 
     def on_get_fail(self, filename):
         """
         Fired when getting the referenced file on the device failed.
         """
-        self.show_warning(_("There was a problem getting '{}' from the "
-                            "device. Please check Mu's logs for "
-                            "more information.").format(filename))
+        self.show_warning(
+            _(
+                "There was a problem getting '{}' from the "
+                "device. Please check Mu's logs for "
+                "more information."
+            ).format(filename)
+        )
 
     def set_theme(self, theme):
         pass
@@ -543,12 +566,8 @@ class Downloader(QObject):
     finished = pyqtSignal(bool)
 
     def __init__(
-            self,
-            des_path,
-            source_path,
-            reqTimeout=5,
-            readTimeout=30,
-            try_time=3):
+        self, des_path, source_path, reqTimeout=5, readTimeout=30, try_time=3
+    ):
         super(Downloader, self).__init__()
         self.retStatus = False
         self.source_path = source_path
@@ -568,7 +587,7 @@ class Downloader(QObject):
         self.networkManager = QNetworkAccessManager()
         self.request()
 
-        self.fp = open(self.des_path, 'wb')
+        self.fp = open(self.des_path, "wb")
         self.reqTimer.start(self.reqTimeout)
         self.eventLoop = QEventLoop()
         self.finished.connect(self.eventLoop.quit)
@@ -584,7 +603,8 @@ class Downloader(QObject):
         try:
             if self.try_time:
                 self.reply = self.networkManager.get(
-                    QNetworkRequest(QUrl(self.source_path)))
+                    QNetworkRequest(QUrl(self.source_path))
+                )
                 self.reply.readyRead.connect(self.startRead)
                 self.reply.downloadProgress.connect(self.onProgress)
                 self.try_time = self.try_time - 1
@@ -606,7 +626,7 @@ class Downloader(QObject):
             self.fp.seek(0, 0)
         else:
             self.fp.close()
-            self.fp = open(self.des_path, 'wb')
+            self.fp = open(self.des_path, "wb")
         # request again, start request timer
         self.requestAgain()
         self.reqTimer.start(self.reqTimeout)
@@ -653,29 +673,7 @@ class Downloader(QObject):
 
 
 def strptime(value):
-    return datetime.datetime.strptime(value, '%Y-%m-%d')
-
-
-# The worst-case scenario is timeout*try_time seconds
-def download(des_path, source_path, timeout=5, try_time=3):
-    tmp = des_path + '.tmp'
-    i = 0
-    while i < try_time:
-        i = i + 1
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            get = requests.get(source_path, timeout=timeout)
-            get.raise_for_status()
-            with open(tmp, 'wb') as file:
-                for block in get.iter_content(16 * 1024):
-                    file.write(block)
-            shutil.move(tmp, des_path)
-            print("finish download %s" % des_path)
-            return True
-        except Exception as ex:
-            print(ex)
-    return False
+    return datetime.datetime.strptime(value, "%Y-%m-%d")
 
 
 class FirmwareUpdater(QThread):
@@ -686,19 +684,20 @@ class FirmwareUpdater(QThread):
     detected = False
     in_bootload_mode = False
     need_confirm = True
-    hint_flashing = 'Flashing...'
-    hint_flashing_success = 'Flashing success.'
-    hint_flashing_fail = 'Flashing fail.'
+    hint_flashing = "Flashing..."
+    hint_flashing_success = "Flashing success."
+    hint_flashing_fail = "Flashing fail."
     current_version = None
 
     def __init__(
-            self,
-            mu_code_path,
-            confirm,
-            show_status,
-            show_message_box,
-            set_all_button,
-            parent=None):
+        self,
+        mu_code_path,
+        confirm,
+        show_status,
+        show_message_box,
+        set_all_button,
+        parent=None,
+    ):
         super(FirmwareUpdater, self).__init__(parent)
         self.mu_code_path = mu_code_path
         self.confirm.connect(confirm)
@@ -736,53 +735,56 @@ class FirmwareUpdater(QThread):
                 return True
             downloader = None
             flag = ConfirmFlag()
-            flag.hint = 'Network connection timeout, Please try again!'
+            flag.hint = "Network connection timeout, Please try again!"
             self.confirm.emit(flag)
             if not flag.is_confirm:
                 return False
 
     def check_new_lib(self):
-        print('check lib')
+        print("check lib")
         if not self.confirmDownload(
-            self.info.libaray_info_path,
-                self.info.cloud_libaray_info_path):
+            self.info.libaray_info_path, self.info.cloud_libaray_info_path
+        ):
             print("not check and download new lib!")
             return
 
-        lib = open(self.info.libaray_info_path, 'r')
-        inf = open(self.info.info_path, 'r')
+        lib = open(self.info.libaray_info_path, "r")
+        inf = open(self.info.info_path, "r")
         lib = json.loads(lib.read())
         inf = json.loads(inf.read())
-        network_error = 'libaray update failure, please check your network.'
+        network_error = "libaray update failure, please check your network."
         has_new = False
 
         # check new
         for new in lib:
-            new_nam = new['name']
-            new_ver = new['version']
+            new_nam = new["name"]
+            new_ver = new["version"]
 
             # need download lib.zip condition
             if new_nam not in self.info.lib_dic.keys():
                 self.show_status_always(
-                    'downloading %s, please wait patiently' % new_nam)
+                    "downloading %s, please wait patiently" % new_nam
+                )
             elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):
                 self.show_status_always(
-                    'updating %s, please wait patiently' % new_nam)
+                    "updating %s, please wait patiently" % new_nam
+                )
             elif not os.path.exists(seeed_path(new_nam)):
                 self.show_status_always(
-                    'downloading %s, please wait patiently' % new_nam)
+                    "downloading %s, please wait patiently" % new_nam
+                )
             else:
                 continue
 
             # download and zip
-            if not self.confirmDownload(seeed_path(new_nam), new['path']):
+            if not self.confirmDownload(seeed_path(new_nam), new["path"]):
                 self.show_status_short_time(network_error)
                 return
 
-            self.show_status_always('extracting %s...' % new_nam)
+            self.show_status_always("extracting %s..." % new_nam)
 
             if not self.unzip(new_nam):
-                self.show_status_short_time('%s extract failure' % new_nam)
+                self.show_status_short_time("%s extract failure" % new_nam)
                 return
             self.info.lib_dic.setdefault(new_nam, new_ver)
             has_new = True
@@ -791,29 +793,28 @@ class FirmwareUpdater(QThread):
         if not has_new:
             return
 
-        inf['lib'] = lib
+        inf["lib"] = lib
 
-        with open(self.info.info_path, 'w') as f:
+        with open(self.info.info_path, "w") as f:
             json.dump(inf, f)
-            print('lib has been updated successfully!')
-        self.show_status_short_time('libaray update successfully!')
+            print("lib has been updated successfully!")
+        self.show_status_short_time("libaray update successfully!")
 
     def unzip(self, lib_zip_name):
         lib_path_zip = seeed_path(lib_zip_name)
         lib_path_mu_code = os.path.join(
-            self.mu_code_path,
-            lib_zip_name.replace('.zip', '')
+            self.mu_code_path, lib_zip_name.replace(".zip", "")
         )
 
-        print('mu_code =', lib_path_mu_code)
-        print('lib_path_zip =', lib_path_zip)
+        print("mu_code =", lib_path_mu_code)
+        print("lib_path_zip =", lib_path_zip)
 
         try:
             if not os.path.exists(lib_path_mu_code):
-                zf = zipfile.ZipFile(lib_path_zip, 'r')
+                zf = zipfile.ZipFile(lib_path_zip, "r")
                 for f in zf.namelist():
                     zf.extract(f, lib_path_mu_code)
-                print('unzip circuitpython-bundle to mu_code dir')
+                print("unzip circuitpython-bundle to mu_code dir")
             return True
         except Exception as ex:
             if os.path.exists(lib_path_mu_code):
@@ -837,21 +838,25 @@ class FirmwareUpdater(QThread):
         self.list_files.emit()
 
     def download_to_board(
-            self,
-            config,
-            need_update=True,
-            has_seeed_firmware=False):
+        self, config, need_update=True, has_seeed_firmware=False
+    ):
         if self.need_confirm:
             flag = ConfirmFlag()
             if has_seeed_firmware:
-                flag.hint = 'there is a new available firmware, ' + \
-                    'would you like to update it to you board ?'
+                flag.hint = (
+                    "there is a new available firmware, "
+                    + "would you like to update it to you board ?"
+                )
             elif self.in_bootload_mode:
-                flag.hint = 'your board on bootload download mode, ' + \
-                    'would you like to flashing a firmware ?'
+                flag.hint = (
+                    "your board on bootload download mode, "
+                    + "would you like to flashing a firmware ?"
+                )
             else:
-                flag.hint = 'there is no firmware in your board, ' + \
-                    'would you like to flashing a firmware ?'
+                flag.hint = (
+                    "there is no firmware in your board, "
+                    + "would you like to flashing a firmware ?"
+                )
             self.confirm.emit(flag)
 
             if not flag.is_confirm:
@@ -865,21 +870,24 @@ class FirmwareUpdater(QThread):
         self.set_all_button.emit(False)
 
         if not self.in_bootload_mode:
-            print('setting baud rate...')
+            print("setting baud rate...")
             subprocess.call(self.info.stty % 1200, shell=True)
             self.need_confirm = False
             return
 
         self.show_status_always(self.hint_flashing)
         if self.flashing(config.local_firmware):
-            version = 'your board update to version %d.%d.%d sucessfully!' % \
-                (config.version.year, config.version.month, config.version.day)
+            version = "your board update to version %d.%d.%d sucessfully!" % (
+                config.version.year,
+                config.version.month,
+                config.version.day,
+            )
             self.show_message_box.emit(version)
             self.show_status_short_time(self.hint_flashing_success)
             self.has_firmware = True
         else:
             self.show_status_short_time(self.hint_flashing_fail)
-            self.show_status_short_time('flashing fail.')
+            self.show_status_short_time("flashing fail.")
         self.set_all_button.emit(True)
 
     def board_halt(self):
@@ -892,9 +900,9 @@ class FirmwareUpdater(QThread):
                 time.sleep(5)
                 continue
             buf = bytearray()
-            com.write(b'\x03')
+            com.write(b"\x03")
             time.sleep(0.05)
-            com.write(b'\x02')
+            com.write(b"\x02")
             time.sleep(0.05)
             cur = datetime.datetime.now()
             while com.waitForReadyRead(200):
@@ -903,15 +911,15 @@ class FirmwareUpdater(QThread):
                     break
                 buf = buf + com.readAll()
                 if len(buf) > 300:
-                    buf = buf[len(buf) - 200:]
+                    buf = buf[len(buf) - 200 :]
             com.close()
-            print('com close')
+            print("com close")
             return buf
         print("giveup")
         return None
 
     def check_new_firmware(self, file):
-        self.show_status_always('check %s...' % file.local_config_name)
+        self.show_status_always("check %s..." % file.local_config_name)
 
         if not self.confirmDownload(file.local_config, file.cloud_config, 3):
             print("not check and download new firmware!")
@@ -920,20 +928,22 @@ class FirmwareUpdater(QThread):
             file.reload()
 
         if file.exist_firmware:
-            self.show_status_short_time('')
+            self.show_status_short_time("")
             return True
 
-        self.show_status_always('download %s...' % file.firmware_name)
+        self.show_status_always("download %s..." % file.firmware_name)
 
         if not self.confirmDownload(
-            file.local_firmware,
-                file.cloud_firmware, 3):
-            self.show_status_short_time('%s download failure' %
-                                        file.firmware_name)
+            file.local_firmware, file.cloud_firmware, 3
+        ):
+            self.show_status_short_time(
+                "%s download failure" % file.firmware_name
+            )
             return False
         else:
-            self.show_status_short_time('%s download successfully' %
-                                        file.firmware_name)
+            self.show_status_short_time(
+                "%s download successfully" % file.firmware_name
+            )
             return True
 
     def update(self):
@@ -946,10 +956,10 @@ class FirmwareUpdater(QThread):
         buf = self.board_halt()
 
         try:
-            tmp = str(buf, 'utf-8')
+            tmp = str(buf, "utf-8")
             print(tmp)
-            r = tmp.index('; Ardupy with seeed')
-            ver = tmp[r - 10:r]
+            r = tmp.index("; Ardupy with seeed")
+            ver = tmp[r - 10 : r]
             self.info.has_firmware = True
             self.set_all_button.emit(True)
             need_update = self.config.version > strptime(ver)
@@ -958,12 +968,11 @@ class FirmwareUpdater(QThread):
             print(ex)
             has_seeed_firmware = False
         if not need_update:
-            print('has latest firmware.')
+            print("has latest firmware.")
         else:
             self.download_to_board(
-                self.config,
-                need_update,
-                has_seeed_firmware)
+                self.config, need_update, has_seeed_firmware
+            )
 
 
 class SeeedMode(MicroPythonMode):
@@ -971,9 +980,10 @@ class SeeedMode(MicroPythonMode):
     Represents the functionality required for running MicroPython on Seeed's
     line of boards
     """
-    name = _('Seeed MicroPython')
+
+    name = _("Seeed MicroPython")
     description = _("Use MicroPython on Seeed's line of boards.")
-    icon = 'seeed'
+    icon = "seeed"
     fs = None
     info = Info()
     in_running_script = False
@@ -986,21 +996,20 @@ class SeeedMode(MicroPythonMode):
 
     def __init__(self, editor, view):
         super().__init__(editor, view)
+        writeEnvrionmentVar()
         self.invoke = FirmwareUpdater(
             mu_code_path=super().workspace_dir(),  # mu_code/
             confirm=self.__confirm,
             show_status=self.editor.show_status_message,
             show_message_box=self.__show_message_box,
-            set_all_button=self.__set_all_button
+            set_all_button=self.__set_all_button,
         )
         self.invoke.info = SeeedMode.info
         self.invoke.start()
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
-        editor.addDeviceCallback = \
-            self.__asyc_detect_new_device_handle
-        editor.rmDeviceCallback = \
-            self.__asyc_disconnected_handle
+        editor.addDeviceCallback = self.__asyc_detect_new_device_handle
+        editor.rmDeviceCallback = self.__asyc_disconnected_handle
 
     def __load(self, *args, default_path=None):
         """
@@ -1008,35 +1017,35 @@ class SeeedMode(MicroPythonMode):
         extracts a Python script from a hex file.
         """
         # Get all supported extensions from the different modes
-        extensions = ['py']
+        extensions = ["py"]
         for mode_name, mode in self.editor.modes.items():
             if mode.file_extensions:
                 extensions += mode.file_extensions
         extensions = set([e.lower() for e in extensions])
-        extensions = '*.{} *.{}'.format(
-            ' *.'.join(extensions),
-            ' *.'.join(extensions).upper())
+        extensions = "*.{} *.{}".format(
+            " *.".join(extensions), " *.".join(extensions).upper()
+        )
         folder = super().workspace_dir()
         allow_previous = False
         path = self.view.get_load_path(
-            folder,
-            extensions,
-            allow_previous=allow_previous)
+            folder, extensions, allow_previous=allow_previous
+        )
         if path:
             self.current_path = os.path.dirname(os.path.abspath(path))
             self.editor._load(path)
 
     def __set_all_button(self, state):
-        print('button Enable=' + str(state))
+        print("button Enable=" + str(state))
         self.set_buttons(files=state, run=state, repl=state, plotter=state)
 
     def __confirm(self, flag):
-        flag.confirm = QMessageBox.Ok == \
-            self.view.show_confirmation(flag.hint, icon='Question')
+        flag.confirm = QMessageBox.Ok == self.view.show_confirmation(
+            flag.hint, icon="Question"
+        )
 
     def __show_message_box(self, text):
         self.msg = QMessageBox()
-        self.msg.setWindowTitle('Hint')
+        self.msg.setWindowTitle("Hint")
         self.msg.setDefaultButton(self.msg.Ok)
         self.msg.setText(text)
         self.msg.show()
@@ -1049,7 +1058,7 @@ class SeeedMode(MicroPythonMode):
             self.toggle_plotter(None)
         if self.repl:
             self.toggle_repl(None)
-        if type == 'seeed':
+        if type == "seeed":
             self.__set_all_button(False)
         self.in_running_script = False
 
@@ -1068,20 +1077,17 @@ class SeeedMode(MicroPythonMode):
                     return True
             return False
 
-        pvid = (
-            port.vendorIdentifier(),
-            port.productIdentifier()
-        )
+        pvid = (port.vendorIdentifier(), port.productIdentifier())
 
         # need match the seeed board pid vid
         if match(pvid, self.info.board_normal):
             self.invoke.in_bootload_mode = False
             self.invoke.detected = True
-            print('detect a normal mode borad')
+            print("detect a normal mode borad")
         if match(pvid, self.info.board_boot):
             self.invoke.in_bootload_mode = True
             self.invoke.detected = True
-            print('detect a bootload mode borad')
+            print("detect a bootload mode borad")
 
     def actions(self):
         """
@@ -1090,37 +1096,45 @@ class SeeedMode(MicroPythonMode):
         """
         buttons = [
             {
-                'name': 'run',
-                'display_name': _('Run'),
-                'description': _("Run your code directly on the Seeed's"
-                                 " line of boards. via the REPL."),
-                'handler': self.run,
-                'shortcut': 'F5',
+                "name": "run",
+                "display_name": _("Run"),
+                "description": _(
+                    "Run your code directly on the Seeed's"
+                    " line of boards. via the REPL."
+                ),
+                "handler": self.run,
+                "shortcut": "F5",
             },
             {
-                'name': 'files',
-                'display_name': _('Files'),
-                'description': _("Access the file system on "
-                                 "Seeed's line of boards."),
-                'handler': self.toggle_files,
-                'shortcut': 'F4',
+                "name": "files",
+                "display_name": _("Files"),
+                "description": _(
+                    "Access the file system on " "Seeed's line of boards."
+                ),
+                "handler": self.toggle_files,
+                "shortcut": "F4",
             },
             {
-                'name': 'repl',
-                'display_name': _('REPL'),
-                'description': _("Use the REPL to live-code on the "
-                                 "Seeed's line of boards."),
-                'handler': self.toggle_repl,
-                'shortcut': 'Ctrl+Shift+I',
-            }, ]
+                "name": "repl",
+                "display_name": _("REPL"),
+                "description": _(
+                    "Use the REPL to live-code on the "
+                    "Seeed's line of boards."
+                ),
+                "handler": self.toggle_repl,
+                "shortcut": "Ctrl+Shift+I",
+            },
+        ]
         if CHARTS:
-            buttons.append({
-                'name': 'plotter',
-                'display_name': _('Plotter'),
-                'description': _('Plot incoming REPL data.'),
-                'handler': self.toggle_plotter,
-                'shortcut': 'CTRL+Shift+P',
-            })
+            buttons.append(
+                {
+                    "name": "plotter",
+                    "display_name": _("Plotter"),
+                    "description": _("Plot incoming REPL data."),
+                    "handler": self.toggle_plotter,
+                    "shortcut": "CTRL+Shift+P",
+                }
+            )
         self.editor.load = self.__load
         return buttons
 
@@ -1151,10 +1165,12 @@ class SeeedMode(MicroPythonMode):
                 self.set_buttons(run=False, files=False, repl=True)
         else:
             message = _("REPL and file system cannot work at the same time.")
-            information = _("The REPL and file system both use the same USB "
-                            "serial connection. Only one can be active "
-                            "at any time. Toggle the file system off and "
-                            "try again.")
+            information = _(
+                "The REPL and file system both use the same USB "
+                "serial connection. Only one can be active "
+                "at any time. Toggle the file system off and "
+                "try again."
+            )
             self.view.show_message(message, information)
 
     def toggle_plotter(self, event):
@@ -1168,12 +1184,15 @@ class SeeedMode(MicroPythonMode):
             elif not (self.repl or self.plotter):
                 self.set_buttons(files=True)
         else:
-            message = _("The plotter and file system cannot work at the same "
-                        "time.")
-            information = _("The plotter and file system both use the same "
-                            "USB serial connection. Only one can be active "
-                            "at any time. Toggle the file system off and "
-                            "try again.")
+            message = _(
+                "The plotter and file system cannot work at the same " "time."
+            )
+            information = _(
+                "The plotter and file system both use the same "
+                "USB serial connection. Only one can be active "
+                "at any time. Toggle the file system off and "
+                "try again."
+            )
             self.view.show_message(message, information)
 
     def run(self):
@@ -1191,26 +1210,46 @@ class SeeedMode(MicroPythonMode):
             self.view.show_message(message, information)
             return
         """
-        logger.info('Running script.')
-        # Grab the Python script.
-        tab = self.view.current_tab
-        if tab is None:
-            # There is no active text editor.
-            message = _("Cannot run anything without any active editor tabs.")
-            information = _("Running transfers the content of the current tab"
-                            " onto the device. It seems like you don't have "
-                            " any tabs open.")
-            self.view.show_message(message, information)
-            return
-        python_script = tab.text().split('\n')
-        if not self.repl:
+        run_slot = self.view.button_bar.slots["run"]
+        # stop
+        if self.in_running_script:
             super().toggle_repl(None)
-        if self.repl:
-            self.set_buttons(
-                modes=False, run=True,
-                files=False, repl=True, plotter=True)
-            self.in_running_script = True
-            self.view.repl_pane.send_commands(python_script)
+            self.in_running_script = False
+            self.set_buttons(repl=False)
+            self.invoke.board_halt()
+            self.set_buttons(run=True, files=True, repl=True)
+            run_slot.setIcon(load_icon("run"))
+            run_slot.setText(_("Run"))
+            run_slot.setToolTip(_("Run your Python script."))
+        # run
+        else:
+            logger.info("Running script.")
+            # Grab the Python script.
+            tab = self.view.current_tab
+            if tab is None:
+                # There is no active text editor.
+                message = _(
+                    "Cannot run anything without any active editor tabs."
+                )
+                information = _(
+                    "Running transfers the content of the current tab"
+                    " onto the device. It seems like you don't have "
+                    " any tabs open."
+                )
+                self.view.show_message(message, information)
+                return
+            python_script = tab.text().split("\n")
+            if not self.repl:
+                super().toggle_repl(None)
+            if self.repl:
+                self.set_buttons(
+                    modes=False, run=True, files=False, repl=True, plotter=True
+                )
+                self.in_running_script = True
+                run_slot.setIcon(load_icon("stop"))
+                run_slot.setText(_("Stop"))
+                run_slot.setToolTip(_("Stop your Python script."))
+                self.view.repl_pane.send_commands(python_script)
 
     def toggle_files(self, event):
         """
@@ -1218,21 +1257,25 @@ class SeeedMode(MicroPythonMode):
         system navigator for the MicroPython device on or off.
         """
         if self.repl:
-            message = _("File system cannot work at the same time as the "
-                        "REPL or plotter.")
-            information = _("The file system and the REPL and plotter "
-                            "use the same USB serial connection. Toggle the "
-                            "REPL and plotter off and try again.")
+            message = _(
+                "File system cannot work at the same time as the "
+                "REPL or plotter."
+            )
+            information = _(
+                "The file system and the REPL and plotter "
+                "use the same USB serial connection. Toggle the "
+                "REPL and plotter off and try again."
+            )
             self.view.show_message(message, information)
         else:
             if self.fs is None:
                 self.add_fs()
                 if self.fs:
-                    logger.info('Toggle filesystem on.')
+                    logger.info("Toggle filesystem on.")
                     self.set_buttons(run=False, repl=False, plotter=False)
             else:
                 self.remove_fs()
-                logger.info('Toggle filesystem off.')
+                logger.info("Toggle filesystem off.")
                 self.set_buttons(run=True, repl=True, plotter=True)
 
     def add_fs(self):
@@ -1246,13 +1289,15 @@ class SeeedMode(MicroPythonMode):
         # Check for MicroPython device
         if not device_port:
             message = _("Could not find an attached Seeed's line of boards.")
-            information = _("Please make sure the device is plugged "
-                            "into this computer.\n\nThe device must "
-                            "have MicroPython flashed onto it before "
-                            "the file system will work.\n\n"
-                            "Finally, press the device's reset button "
-                            "and wait a few seconds before trying "
-                            "again.")
+            information = _(
+                "Please make sure the device is plugged "
+                "into this computer.\n\nThe device must "
+                "have MicroPython flashed onto it before "
+                "the file system will work.\n\n"
+                "Finally, press the device's reset button "
+                "and wait a few seconds before trying "
+                "again."
+            )
             self.view.show_message(message, information)
             return
 
@@ -1265,9 +1310,7 @@ class SeeedMode(MicroPythonMode):
 
         # replace to US panes
         def add_filesystem(home, file_manager, board_name):
-            self.fs = self.view.add_filesystem(home,
-                                               file_manager,
-                                               board_name)
+            self.fs = self.view.add_filesystem(home, file_manager, board_name)
             # reset panes
             self.fs.deleteLater()
             self.fs = None
@@ -1299,9 +1342,11 @@ class SeeedMode(MicroPythonMode):
         self.file_manager = FileManager(device_port)
         self.file_manager.moveToThread(self.file_manager_thread)
         self.file_manager_thread.started.connect(on_start)
-        self.fs = add_filesystem(self.workspace_dir(),
-                                 self.file_manager,
-                                 _("Seeed's line of boards"))
+        self.fs = add_filesystem(
+            self.workspace_dir(),
+            self.file_manager,
+            _("Seeed's line of boards"),
+        )
         self.fs.set_message.connect(self.editor.show_status_message)
         self.fs.set_warning.connect(self.view.show_message)
         self.file_manager_thread.start()

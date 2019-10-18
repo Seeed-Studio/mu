@@ -41,7 +41,7 @@ from mu.modes import (
     PyGameZeroMode,
     ESPMode,
     WebMode,
-    SeeedMode
+    SeeedMode,
 )
 from mu.debugger.runner import run as run_debugger
 from mu.interface.themes import NIGHT_STYLE, DAY_STYLE, CONTRAST_STYLE
