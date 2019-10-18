@@ -21,7 +21,6 @@ import time
 import json
 import datetime
 import os
-import sys
 import platform
 import subprocess
 import shutil
@@ -76,8 +75,7 @@ recursive-include mu/locale *
 
 
 def writeEnvrionmentVar():
-    print("writeEnvrionmentVar")
-    filePath = os.path.dirname(os.path.abspath(sys.argv[0]))
+    filePath = seeed_path("../../../")
     filePath = os.path.join(filePath, "MANIFEST.in")
     file = open(filePath, 'w')
     file.write('include mu/resources/seeed/*\n')
