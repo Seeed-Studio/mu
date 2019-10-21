@@ -570,7 +570,7 @@ class Downloader(QObject):
         self.retStatus = False
         self.source_path = source_path
         self.des_path = des_path
-        self.tmp = des_path + ".tmp"
+        self.bak_file = des_path + ".bak"
         self.try_time = try_time
         self.readTimeout = readTimeout * 1000
         self.reqTimeout = reqTimeout * 1000
@@ -586,15 +586,18 @@ class Downloader(QObject):
         self.networkManager = QNetworkAccessManager()
         self.request()
 
-        self.fp = open(self.tmp, "wb")
+        os.rename(self.des_path, self.bak_file)
+        self.fp = open(self.des_path, "wb")
         self.reqTimer.start(self.reqTimeout)
         self.eventLoop = QEventLoop()
         self.finished.connect(self.eventLoop.quit)
         self.eventLoop.exec_()
         self.fp.close()
-        if self.retStatus:
+        if self.retStatus is False:
             os.remove(self.des_path)
-            shutil.move(self.tmp, self.des_path)
+            os.rename(self.bak_file, self.des_path)
+        else:
+            os.remove(self.bak_file)
 
     def requestAgain(self):
         self.reply.close()
