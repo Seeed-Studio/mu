@@ -7,5 +7,13 @@ from .esp import ESPMode
 from .web import WebMode
 from .seeed import SeeedMode
 
-__all__ = ['PythonMode', 'CircuitPythonMode', 'MicrobitMode', 'DebugMode',
-           'PyGameZeroMode', 'ESPMode', "WebMode", 'SeeedMode']
+__all__ = [
+    "PythonMode",
+    "CircuitPythonMode",
+    "MicrobitMode",
+    "DebugMode",
+    "PyGameZeroMode",
+    "ESPMode",
+    "WebMode",
+    "SeeedMode",
+]

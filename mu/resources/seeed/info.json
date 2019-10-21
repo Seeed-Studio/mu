@@ -1,12 +1,1 @@
-{
-    "boot": [
-        {"type": "ardupy-seeeduino-m0", "pvid": ["2886", "26"], "name": "lotusM0" },
-        {"type": "ardupy-seeeduino-m0", "pvid": ["2886", "27"], "name": "cortexM0"}
-    ], 
-    "normal": [
-        {"type": "ardupy-seeeduino-m0", "pvid": ["2886", "8026"], "name": "lotusM0" },
-        {"type": "ardupy-seeeduino-m0", "pvid": ["2886", "8027"], "name": "cortexM0"},
-        {"type": "ardupy-seeeduino-m0", "pvid": ["2341", "804D"], "name": "cortexM0"}
-    ],  
-    "lib": []
-}
+{"boot": [{"type": "ardupy-seeeduino-m0", "pvid": ["2886", "26"], "name": "lotusM0"}, {"type": "ardupy-seeeduino-m0", "pvid": ["2886", "27"], "name": "cortexM0"}], "normal": [{"type": "ardupy-seeeduino-m0", "pvid": ["2886", "8026"], "name": "lotusM0"}, {"type": "ardupy-seeeduino-m0", "pvid": ["2886", "8027"], "name": "cortexM0"}, {"type": "ardupy-seeeduino-m0", "pvid": ["2341", "804D"], "name": "cortexM0"}], "lib": [{"name": "circuitpython-bundle.zip", "version": "2019-8-26", "path": "https://seeed-studio.github.io/ArduPy/libaray/circuitpython-bundle.zip"}]}

@@ -1,3 +1,5 @@
+include mu/resources/seeed/*
+include mu/resources/seeed/tools-win/*
 include mu/*
 include README.rst
 include CHANGES.rst
