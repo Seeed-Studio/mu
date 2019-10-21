@@ -21,6 +21,7 @@ import time
 import json
 import datetime
 import os
+import re
 import platform
 import subprocess
 import shutil
@@ -58,7 +59,7 @@ from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 logger = logging.getLogger(__name__)
 
 
-inc = '''
+inc = """
 include mu/*
 include README.rst
 include CHANGES.rst
@@ -71,22 +72,21 @@ include mu/resources/pygamezero/*
 recursive-include mu/resources/web *
 include run.py
 recursive-include mu/locale *
-'''
+"""
 
 
 def writeEnvrionmentVar():
     filePath = seeed_path("../../../")
     filePath = os.path.join(filePath, "MANIFEST.in")
-    file = open(filePath, 'w')
-    file.write('include mu/resources/seeed/*\n')
-    if os.name == 'posix':
-        if platform.uname().system == 'Darwin':
-            file.write('include mu/resources/seeed/tools-darwin/*' + inc)
+    file = open(filePath, "w")
+    file.write("include mu/resources/seeed/*\n")
+    if os.name == "posix":
+        if platform.uname().system == "Darwin":
+            file.write("include mu/resources/seeed/tools-darwin/*" + inc)
         else:
-            file.write('include mu/resources/seeed/tools-posix/*' + inc)
-    elif os.name == 'nt':
-        print("write nt")
-        file.write('include mu/resources/seeed/tools-win/*' + inc)
+            file.write("include mu/resources/seeed/tools-posix/*" + inc)
+    elif os.name == "nt":
+        file.write("include mu/resources/seeed/tools-win/*" + inc)
     file.close()
 
 
@@ -570,6 +570,7 @@ class Downloader(QObject):
         self.retStatus = False
         self.source_path = source_path
         self.des_path = des_path
+        self.tmp = des_path + ".tmp"
         self.try_time = try_time
         self.readTimeout = readTimeout * 1000
         self.reqTimeout = reqTimeout * 1000
@@ -585,12 +586,15 @@ class Downloader(QObject):
         self.networkManager = QNetworkAccessManager()
         self.request()
 
-        self.fp = open(self.des_path, "wb")
+        self.fp = open(self.tmp, "wb")
         self.reqTimer.start(self.reqTimeout)
         self.eventLoop = QEventLoop()
         self.finished.connect(self.eventLoop.quit)
         self.eventLoop.exec_()
         self.fp.close()
+        if self.retStatus:
+            os.remove(self.des_path)
+            shutil.move(self.tmp, self.des_path)
 
     def requestAgain(self):
         self.reply.close()
@@ -609,7 +613,6 @@ class Downloader(QObject):
             else:
                 self.finished.emit(self.retStatus)
                 print("no try times, emit finished")
-
                 self.reqTimer.stop()
         except Exception as e:
             print(e)
@@ -703,6 +706,7 @@ class FirmwareUpdater(QThread):
         self.show_message_box.connect(show_message_box)
         self.set_all_button.connect(set_all_button)
         self.config = None
+        self.offlineMode = False
 
     def run(self):
         self.set_all_button.emit(False)
@@ -726,20 +730,21 @@ class FirmwareUpdater(QThread):
 
     # async function, ask user need try download again, \
     # until successful or refused
-    def confirmDownload(self, des_path, source_path, timeout=5, try_time=3):
-        while True:
-            downloader = Downloader(des_path, source_path, timeout, try_time)
+    def confirmDownload(self, des_path, source_path):
+        while self.offlineMode is False:
+            downloader = Downloader(des_path, source_path)
             if downloader.retStatus:
                 return True
-            downloader = None
-            flag = ConfirmFlag()
-            flag.hint = "Network connection timeout, Please try again!"
-            self.confirm.emit(flag)
-            if not flag.is_confirm:
-                return False
+            else:
+                downloader.deleteLater()
+                downloader = None
+                flag = ConfirmFlag()
+                flag.hint = "Network link timeout, enable offline mode?"
+                self.confirm.emit(flag)
+                if flag.is_confirm:
+                    self.offlineMode = True
 
     def check_new_lib(self):
-        print("check lib")
         if not self.confirmDownload(
             self.info.libaray_info_path, self.info.cloud_libaray_info_path
         ):
@@ -919,7 +924,7 @@ class FirmwareUpdater(QThread):
     def check_new_firmware(self, file):
         self.show_status_always("check %s..." % file.local_config_name)
 
-        if not self.confirmDownload(file.local_config, file.cloud_config, 3):
+        if not self.confirmDownload(file.local_config, file.cloud_config):
             print("not check and download new firmware!")
             return False
         else:
@@ -932,8 +937,8 @@ class FirmwareUpdater(QThread):
         self.show_status_always("download %s..." % file.firmware_name)
 
         if not self.confirmDownload(
-            file.local_firmware, file.cloud_firmware, 3
-        ):
+            file.local_firmware,
+                file.cloud_firmware):
             self.show_status_short_time(
                 "%s download failure" % file.firmware_name
             )
@@ -1004,6 +1009,11 @@ class SeeedMode(MicroPythonMode):
         )
         self.invoke.info = SeeedMode.info
         self.invoke.start()
+        # check terminal finish
+        self.terminalKeywords = r"KeyboardInterrupt"
+        self.checkTerminalTimer = QTimer()
+        self.checkTerminalTimer.timeout.connect(self.checkTerminal)
+        self.timeoutFlag = False
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
         editor.addDeviceCallback = self.__asyc_detect_new_device_handle
@@ -1067,6 +1077,8 @@ class SeeedMode(MicroPythonMode):
         self.info.board_id = None
         self.info.board_name = device_name
         port = QSerialPortInfo(device_name)
+        # debug info
+        print(device_name)
 
         def match(pvid, ids):
             for valid in ids:
@@ -1152,9 +1164,10 @@ class SeeedMode(MicroPythonMode):
                     super().remove_plotter()
                 if self.in_running_script:
                     self.in_running_script = False
+                    self.setRunIcon()
                     self.set_buttons(repl=False)
                     self.invoke.board_halt()
-                self.set_buttons(run=True, files=True, repl=True)
+                self.set_buttons(modes=True, run=True, files=True, repl=True)
             elif not self.repl:
                 # Add REPL
                 super().toggle_repl(event)
@@ -1208,17 +1221,11 @@ class SeeedMode(MicroPythonMode):
             self.view.show_message(message, information)
             return
         """
-        run_slot = self.view.button_bar.slots["run"]
         # stop
         if self.in_running_script:
-            super().toggle_repl(None)
-            self.in_running_script = False
-            self.set_buttons(repl=False)
-            self.invoke.board_halt()
-            self.set_buttons(run=True, files=True, repl=True)
-            run_slot.setIcon(load_icon("run"))
-            run_slot.setText(_("Run"))
-            run_slot.setToolTip(_("Run your Python script."))
+            self.set_buttons(run=False)
+            self.view.repl_pane.serial.write(b"\x03")
+            self.checkTerminalTimer.start(250)
         # run
         else:
             logger.info("Running script.")
@@ -1243,10 +1250,8 @@ class SeeedMode(MicroPythonMode):
                 self.set_buttons(
                     modes=False, run=True, files=False, repl=True, plotter=True
                 )
+                self.setRunIcon(False)
                 self.in_running_script = True
-                run_slot.setIcon(load_icon("stop"))
-                run_slot.setText(_("Stop"))
-                run_slot.setToolTip(_("Stop your Python script."))
                 self.view.repl_pane.send_commands(python_script)
 
     def toggle_files(self, event):
@@ -1366,3 +1371,25 @@ class SeeedMode(MicroPythonMode):
         """
         self.set_buttons(files=True)
         super().on_data_flood()
+
+    def setRunIcon(self, run=True):
+        keyword = "run" if run else "stop"
+        textHead = "Run" if run else "Stop"
+        tooltip = textHead + "your Python script."
+        run_slot = self.view.button_bar.slots["run"]
+        run_slot.setIcon(load_icon(keyword))
+        run_slot.setText(_(textHead))
+        run_slot.setToolTip(_(tooltip))
+
+    def checkTerminal(self):
+        if self.timeoutFlag is False and re.search(
+                self.terminalKeywords,
+                self.view.repl_pane.toPlainText(), re.IGNORECASE):
+            self.checkTerminalTimer.start(750)  # empirical value
+            self.timeoutFlag = True
+            self.setRunIcon()
+        elif self.timeoutFlag:
+            self.timeoutFlag = False
+            self.checkTerminalTimer.stop()
+            self.set_buttons(modes=True, run=True)
+            self.in_running_script = False
