@@ -594,10 +594,12 @@ class Downloader(QObject):
         self.eventLoop.exec_()
         self.fp.close()
         if self.retStatus is False:
-            os.remove(self.des_path)
+            if os.path.exists(self.bak_file):
+                os.remove(self.des_path)
             os.rename(self.bak_file, self.des_path)
         else:
-            os.remove(self.bak_file)
+            if os.path.exists(self.bak_file):
+                os.remove(self.bak_file)
 
     def requestAgain(self):
         self.reply.close()
