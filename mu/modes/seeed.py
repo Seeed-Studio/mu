@@ -1063,15 +1063,15 @@ class SeeedMode(MicroPythonMode):
 
     def __asyc_disconnected_handle(self, device):
         type = device[0]
-        if self.fs:
-            self.toggle_files(None)
-        if self.plotter:
-            self.toggle_plotter(None)
-        if self.repl:
-            self.toggle_repl(None)
         if type == "seeed":
             self.__set_all_button(False)
-        self.in_running_script = False
+            self.in_running_script = False
+            if self.fs:
+                self.toggle_files(None)
+            if self.plotter:
+                self.toggle_plotter(None)
+            if self.repl:
+                self.toggle_repl(None)
 
     def __asyc_detect_new_device_handle(self, device):
         device_name = device[1]
@@ -1081,6 +1081,7 @@ class SeeedMode(MicroPythonMode):
         self.info.board_name = device_name
         port = QSerialPortInfo(device_name)
         # debug info
+        print("+++++++++++++")
         print(device_name)
 
         def match(pvid, ids):
@@ -1091,6 +1092,10 @@ class SeeedMode(MicroPythonMode):
             return False
 
         pvid = (port.vendorIdentifier(), port.productIdentifier())
+        print(pvid)
+        print(self.info.board_normal)
+        print(self.info.board_boot)
+        print("+++++++++++++")
 
         # need match the seeed board pid vid
         if match(pvid, self.info.board_normal):
