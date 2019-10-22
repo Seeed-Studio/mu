@@ -82,10 +82,13 @@ def writeEnvrionmentVar():
     file.write("include mu/resources/seeed/*\n")
     if os.name == "posix":
         if platform.uname().system == "Darwin":
+            print("Darwin")
             file.write("include mu/resources/seeed/tools-darwin/*" + inc)
         else:
+            print("linux")
             file.write("include mu/resources/seeed/tools-posix/*" + inc)
     elif os.name == "nt":
+        print("nt")
         file.write("include mu/resources/seeed/tools-win/*" + inc)
     file.close()
 
@@ -1016,6 +1019,9 @@ class SeeedMode(MicroPythonMode):
         self.terminalKeywords = r"KeyboardInterrupt"
         self.checkTerminalTimer = QTimer()
         self.checkTerminalTimer.timeout.connect(self.checkTerminal)
+        # get serial write status
+        self.checkSerialWriteTimer = QTimer()
+        self.checkSerialWriteTimer.timeout.connect(self.serialWriteFinish)
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
         editor.addDeviceCallback = self.__asyc_detect_new_device_handle
@@ -1082,9 +1088,6 @@ class SeeedMode(MicroPythonMode):
         self.info.board_id = None
         self.info.board_name = device_name
         port = QSerialPortInfo(device_name)
-        # debug info
-        print("+++++++++++++")
-        print(device_name)
 
         def match(pvid, ids):
             for valid in ids:
@@ -1094,10 +1097,7 @@ class SeeedMode(MicroPythonMode):
             return False
 
         pvid = (port.vendorIdentifier(), port.productIdentifier())
-        print(pvid)
-        print(self.info.board_normal)
-        print(self.info.board_boot)
-        print("+++++++++++++")
+        print(device_name, pvid)
 
         # need match the seeed board pid vid
         if match(pvid, self.info.board_normal):
@@ -1259,7 +1259,11 @@ class SeeedMode(MicroPythonMode):
                 super().toggle_repl(None)
             if self.repl:
                 self.set_buttons(
-                    modes=False, run=True, files=False, repl=True, plotter=True
+                    modes=False, run=False,
+                    files=False, repl=True, plotter=True
+                )
+                self.view.repl_pane.serial.bytesWritten.connect(
+                    self.on_serialData_write
                 )
                 self.setRunIcon(False)
                 self.in_running_script = True
@@ -1403,3 +1407,15 @@ class SeeedMode(MicroPythonMode):
             self.setRunIcon()
             self.set_buttons(modes=True, run=True)
             self.in_running_script = False
+
+    def on_serialData_write(self, word):
+        self.checkSerialWriteTimer.start(250)
+
+    def serialWriteFinish(self):
+        self.view.repl_pane.serial.bytesWritten.disconnect(
+            self.on_serialData_write
+        )
+        self.checkSerialWriteTimer.stop()
+        self.set_buttons(
+            modes=False, run=True, files=False, repl=True, plotter=True
+        )
