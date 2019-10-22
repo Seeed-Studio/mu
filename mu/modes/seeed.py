@@ -941,9 +941,7 @@ class FirmwareUpdater(QThread):
 
         self.show_status_always("download %s..." % file.firmware_name)
 
-        if not self.confirmDownload(
-            file.local_firmware,
-                file.cloud_firmware):
+        if not self.confirmDownload(file.local_firmware, file.cloud_firmware):
             self.show_status_short_time(
                 "%s download failure" % file.firmware_name
             )
@@ -1077,6 +1075,9 @@ class SeeedMode(MicroPythonMode):
 
     def __asyc_detect_new_device_handle(self, device):
         device_name = device[1]
+        prefixPath = r"/dev/"
+        if device_name[:len(prefixPath)] == prefixPath:
+            device_name = device_name[len(prefixPath):]
         self.__set_all_button(False)
         self.info.has_firmware = False
         self.info.board_id = None
@@ -1393,8 +1394,10 @@ class SeeedMode(MicroPythonMode):
 
     def checkTerminal(self):
         if self.timeoutFlag is False and re.search(
-                self.terminalKeywords,
-                self.view.repl_pane.toPlainText(), re.IGNORECASE):
+            self.terminalKeywords,
+            self.view.repl_pane.toPlainText(),
+            re.IGNORECASE,
+        ):
             self.checkTerminalTimer.start(750)  # empirical value
             self.timeoutFlag = True
             self.setRunIcon()
