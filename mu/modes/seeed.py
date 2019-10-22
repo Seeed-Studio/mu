@@ -1016,7 +1016,6 @@ class SeeedMode(MicroPythonMode):
         self.terminalKeywords = r"KeyboardInterrupt"
         self.checkTerminalTimer = QTimer()
         self.checkTerminalTimer.timeout.connect(self.checkTerminal)
-        self.timeoutFlag = False
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
         editor.addDeviceCallback = self.__asyc_detect_new_device_handle
@@ -1235,6 +1234,7 @@ class SeeedMode(MicroPythonMode):
         # stop
         if self.in_running_script:
             self.set_buttons(run=False)
+            self.curPos = len(self.view.repl_pane.toPlainText())
             self.view.repl_pane.serial.write(b"\x03")
             self.checkTerminalTimer.start(250)
         # run
@@ -1393,16 +1393,13 @@ class SeeedMode(MicroPythonMode):
         run_slot.setToolTip(_(tooltip))
 
     def checkTerminal(self):
-        if self.timeoutFlag is False and re.search(
+        text = self.view.repl_pane.toPlainText()
+        res = re.search(
             self.terminalKeywords,
-            self.view.repl_pane.toPlainText(),
-            re.IGNORECASE,
-        ):
-            self.checkTerminalTimer.start(750)  # empirical value
-            self.timeoutFlag = True
-            self.setRunIcon()
-        elif self.timeoutFlag:
-            self.timeoutFlag = False
+            text[self.curPos:],
+            re.IGNORECASE)
+        if res:
             self.checkTerminalTimer.stop()
+            self.setRunIcon()
             self.set_buttons(modes=True, run=True)
             self.in_running_script = False
