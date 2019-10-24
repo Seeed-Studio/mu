@@ -21,6 +21,7 @@ import time
 import json
 import datetime
 import os
+import re
 import platform
 import subprocess
 import shutil
@@ -36,19 +37,29 @@ from mu.interface.panes import (
 from mu.interface.themes import Font, DEFAULT_FONT_SIZE
 from mu.resources import load_icon, path
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
-
-from PyQt5.QtCore import pyqtSignal, QThread, QTimer, Qt, QUrl, \
-    QObject, QEventLoop
-from PyQt5.QtWidgets import QMessageBox, \
-    QMenu, QTreeWidget, QTreeWidgetItem, QAbstractItemView
+from PyQt5.QtCore import (
+    pyqtSignal,
+    QThread,
+    QTimer,
+    Qt,
+    QUrl,
+    QObject,
+    QEventLoop,
+)
+from PyQt5.QtWidgets import (
+    QMessageBox,
+    QMenu,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QAbstractItemView,
+)
 from PyQt5.QtWidgets import QGridLayout, QLabel, QFrame
-from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, \
-    QNetworkReply
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
 logger = logging.getLogger(__name__)
 
 
-inc = '''
+inc = """
 include mu/*
 include README.rst
 include CHANGES.rst
@@ -61,22 +72,24 @@ include mu/resources/pygamezero/*
 recursive-include mu/resources/web *
 include run.py
 recursive-include mu/locale *
-'''
+"""
 
 
 def writeEnvrionmentVar():
     filePath = seeed_path("../../../")
     filePath = os.path.join(filePath, "MANIFEST.in")
-    file = open(filePath, 'w')
-    file.write('include mu/resources/seeed/*\n')
-    if os.name == 'posix':
-        if platform.uname().system == 'Darwin':
-            file.write('include mu/resources/seeed/tools-darwin/*' + inc)
+    file = open(filePath, "w")
+    file.write("include mu/resources/seeed/*\n")
+    if os.name == "posix":
+        if platform.uname().system == "Darwin":
+            print("Darwin")
+            file.write("include mu/resources/seeed/tools-darwin/*" + inc)
         else:
-            file.write('include mu/resources/seeed/tools-posix/*' + inc)
-    elif os.name == 'nt':
-        print("write nt")
-        file.write('include mu/resources/seeed/tools-win/*' + inc)
+            print("linux")
+            file.write("include mu/resources/seeed/tools-posix/*" + inc)
+    elif os.name == "nt":
+        print("nt")
+        file.write("include mu/resources/seeed/tools-win/*" + inc)
     file.close()
 
 
@@ -88,16 +101,14 @@ class Config:
     def __init__(self, name):
         self.local_config_name = name
         self.local_config = seeed_path(name)
-
-        self.cloud_config = 'https://seeed-studio.github.io/ArduPy/' + name
-
+        self.cloud_config = "https://seeed-studio.github.io/ArduPy/" + name
         self.json = {}
         if os.path.exists(self.local_config):
             self.reload()
 
     def reload(self):
         try:
-            self.json = json.loads(open(self.local_config, 'r').read())
+            self.json = json.loads(open(self.local_config, "r").read())
         except Exception as e:
             self.json = {}
             print(e)
@@ -554,15 +565,19 @@ class SeeedFileSystemPane(QFrame):
 
 class Downloader(QObject):
     finished = pyqtSignal(bool)
-    def __init__(self, des_path, source_path, reqTimeout=5, readTimeout=0, try_time=3):
+
+    def __init__(
+        self, des_path, source_path, reqTimeout=10, readTimeout=30, try_time=3
+    ):
         super(Downloader, self).__init__()
         self.retStatus = False
         self.source_path = source_path
         self.des_path = des_path
+        self.bak_file = des_path + ".bak"
         self.try_time = try_time
-        self.readTimeout = readTimeout*1000
-        self.reqTimeout = reqTimeout*1000
-        self.data = b''
+        self.readTimeout = readTimeout * 1000
+        self.reqTimeout = reqTimeout * 1000
+        self.data = None
 
         # request timer, default 5 sec
         self.reqTimer = QTimer()
@@ -574,87 +589,98 @@ class Downloader(QObject):
         self.networkManager = QNetworkAccessManager()
         self.request()
 
+        os.rename(self.des_path, self.bak_file)
+        self.fp = open(self.des_path, "wb")
         self.reqTimer.start(self.reqTimeout)
         self.eventLoop = QEventLoop()
         self.finished.connect(self.eventLoop.quit)
         self.eventLoop.exec_()
+        self.fp.close()
+        if self.retStatus is False:
+            if os.path.exists(self.des_path):
+                os.remove(self.des_path)
+            os.rename(self.bak_file, self.des_path)
+        else:
+            if os.path.exists(self.bak_file):
+                os.remove(self.bak_file)
+
+    def destoryRequestReply(self, reply):
+        reply.blockSignals(True)
+        reply.close()
+        reply = None
 
     def requestAgain(self):
-        self.reply.close()
+        self.destoryRequestReply(self.reply)
         self.request()
 
     def request(self):
-        print("[DEBUG]------Request")
+        # print("[DEBUG]------Request")
         try:
             if self.try_time:
-                self.reply = self.networkManager.get(QNetworkRequest(QUrl(self.source_path)))
-                self.reply.finished.connect(self.onFinished)
-                self.reply.readyRead.connect(self.onReadyRead)
+                self.reply = self.networkManager.get(
+                    QNetworkRequest(QUrl(self.source_path))
+                )
+                self.reply.readyRead.connect(self.startRead)
+                self.reply.downloadProgress.connect(self.onProgress)
                 self.try_time = self.try_time - 1
             else:
                 self.finished.emit(self.retStatus)
                 print("no try times, emit finished")
-
                 self.reqTimer.stop()
         except Exception as e:
             print(e)
 
     def onReadTimeOut(self):
-        # request again
+        # stop read timer
+        print("read time out")
         self.readTimer.stop()
-        self.request()
+        # reset file data
+        if self.fp.seekable():
+            self.fp.truncate(0)
+            self.fp.seek(0, 0)
+        else:
+            self.fp.close()
+            self.fp = open(self.des_path, "wb")
+        # request again, start request timer
+        self.requestAgain()
         self.reqTimer.start(self.reqTimeout)
 
     def onReqTimeOut(self):
         self.requestAgain()
 
-    def onReadyRead(self):
-        data = self.reply.read(16*1024)
-        self.data += data
-        print('onReadyRead number: %s'%len(data))
+    def startRead(self):
+        self.reqTimer.stop()
+        self.reply.readyRead.disconnect(self.startRead)
 
-    def onFinished(self):
-        try:
-            if len(self.data) <= 0:
-                e = Exception("Invaild Data, Request again")
-                raise e
+    def onProgress(self, cur, total):
+        # print("%s---%s"%(cur, total))
+        self.readTimer.start(self.readTimeout)
+        if self.writeFile() is False:
+            self.endRead(False)
+        if cur == total and total > 0:
+            self.endRead(True)
+        self.readTimer.stop()
 
-            self.reqTimer.stop()
-            if self.readTimeout:
-                self.readTimer.start(self.readTimeout)
-            # write
-            with open(self.des_path, 'w') as fp:
-                print("write file:%s"%fp.write(str(self.data, encoding='utf-8')))
-
+    def endRead(self, successful):
+        if successful:
             print("finish download %s" % self.des_path)
             self.retStatus = True
             self.finished.emit(self.retStatus)
-        except Exception as e:
+            self.destoryRequestReply(self.reply)
+        else:
             self.requestAgain()
             self.reqTimer.start(self.reqTimeout)
-            self.readTimer.stop()
-            print("Exception happen in Function[onFinished]: "+str(e))
 
-
-def strptime(value):
-    return datetime.datetime.strptime(value, '%Y-%m-%d')
-
-# The worst-case scenario is timeout*try_time seconds
-def download(des_path, source_path, timeout=5, try_time=3):
-    tmp = des_path + '.tmp'
-    i = 0
-    while i < try_time:
-        i = i + 1
+    def writeFile(self):
         try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            get = requests.get(source_path, timeout=timeout)
-            get.raise_for_status()
-            with open(tmp, 'wb') as file:
-                for block in get.iter_content(16 * 1024):
-                    file.write(block)
-            shutil.move(tmp, des_path)
-            print("finish download %s" % des_path)
+            data = self.reply.readAll()
+            if data:
+                readLen = len(data)
+                if readLen <= 0:
+                    e = Exception("Invaild Data, Request again")
+                    raise e
+                self.fp.write(data)
+                # print("writelen:%s"%writelen)
             return True
         except Exception as e:
             print("Exception happen in Function[writeFile]: " + str(e))
@@ -694,6 +720,7 @@ class FirmwareUpdater(QThread):
         self.show_message_box.connect(show_message_box)
         self.set_all_button.connect(set_all_button)
         self.config = None
+        self.offlineMode = False
 
     def run(self):
         self.set_all_button.emit(False)
@@ -715,24 +742,26 @@ class FirmwareUpdater(QThread):
     def show_status_always(self, msg):
         self.show_status.emit(msg, 1000 * 1000)
 
-
-    # async function, ask user need try download again, until successful or refused.
-    def confirmDownload(self, des_path, source_path, timeout=5, try_time=3):
-        while True:
-            downloader = Downloader(des_path, source_path, timeout, try_time)
+    # async function, ask user need try download again, \
+    # until successful or refused
+    def confirmDownload(self, des_path, source_path):
+        while self.offlineMode is False:
+            downloader = Downloader(des_path, source_path)
             if downloader.retStatus:
                 return True
-            downloader = None
-            flag = ConfirmFlag()
-            flag.hint = 'Network connection timeout, Please try again!'
-            self.confirm.emit(flag)
-            if not flag.is_confirm:
-                return False
+            else:
+                downloader.deleteLater()
+                downloader = None
+                flag = ConfirmFlag()
+                flag.hint = "Network link timeout, enable offline mode?"
+                self.confirm.emit(flag)
+                if flag.is_confirm:
+                    self.offlineMode = True
 
     def check_new_lib(self):
-        print('check lib')
-        if not self.confirmDownload(self.info.libaray_info_path,
-                            self.info.cloud_libaray_info_path):
+        if not self.confirmDownload(
+            self.info.libaray_info_path, self.info.cloud_libaray_info_path
+        ):
             print("not check and download new lib!")
             return
 
@@ -745,24 +774,27 @@ class FirmwareUpdater(QThread):
 
         # check new
         for new in lib:
-            new_nam = new['name']
-            new_ver = new['version']
+            new_nam = new["name"]
+            new_ver = new["version"]
 
             # need download lib.zip condition
-            if new_nam not in self.info.lib_dic.keys():                     # not in json
+            if new_nam not in self.info.lib_dic.keys():
                 self.show_status_always(
-                    'downloading %s, please wait patiently' % new_nam)
-            elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):  # new version
+                    "downloading %s, please wait patiently" % new_nam
+                )
+            elif strptime(new_ver) > strptime(self.info.lib_dic[new_nam]):
                 self.show_status_always(
-                    'updating %s, please wait patiently' % new_nam)
-            elif not os.path.exists(seeed_path(new_nam)):                   # local not exists lib
+                    "updating %s, please wait patiently" % new_nam
+                )
+            elif not os.path.exists(seeed_path(new_nam)):
                 self.show_status_always(
-                    'downloading %s, please wait patiently' % new_nam)
-            else:                                                           # not need download
+                    "downloading %s, please wait patiently" % new_nam
+                )
+            else:
                 continue
 
             # download and zip
-            if not download(seeed_path(new_nam), new['path']):
+            if not self.confirmDownload(seeed_path(new_nam), new["path"]):
                 self.show_status_short_time(network_error)
                 return
 
@@ -904,9 +936,9 @@ class FirmwareUpdater(QThread):
         return None
 
     def check_new_firmware(self, file):
-        self.show_status_always('check %s...' % file.local_config_name)
+        self.show_status_always("check %s..." % file.local_config_name)
 
-        if not self.confirmDownload(file.local_config, file.cloud_config, 3):
+        if not self.confirmDownload(file.local_config, file.cloud_config):
             print("not check and download new firmware!")
             return False
         else:
@@ -916,11 +948,9 @@ class FirmwareUpdater(QThread):
             self.show_status_short_time("")
             return True
 
-        self.show_status_always('download %s...' % file.firmware_name)
+        self.show_status_always("download %s..." % file.firmware_name)
 
-        if not self.confirmDownload(
-            file.local_firmware, file.cloud_firmware, 3
-        ):
+        if not self.confirmDownload(file.local_firmware, file.cloud_firmware):
             self.show_status_short_time(
                 "%s download failure" % file.firmware_name
             )
@@ -991,6 +1021,13 @@ class SeeedMode(MicroPythonMode):
         )
         self.invoke.info = SeeedMode.info
         self.invoke.start()
+        # check terminal finish
+        self.terminalKeywords = r"KeyboardInterrupt"
+        self.checkTerminalTimer = QTimer()
+        self.checkTerminalTimer.timeout.connect(self.checkTerminal)
+        # get serial write status
+        self.checkSerialWriteTimer = QTimer()
+        self.checkSerialWriteTimer.timeout.connect(self.serialWriteFinish)
         ArdupyDeviceFileList.info = SeeedMode.info
         LocalFileTree.info = SeeedMode.info
         editor.addDeviceCallback = self.__asyc_detect_new_device_handle
@@ -1037,18 +1074,21 @@ class SeeedMode(MicroPythonMode):
 
     def __asyc_disconnected_handle(self, device):
         type = device[0]
-        if self.fs:
-            self.toggle_files(None)
-        if self.plotter:
-            self.toggle_plotter(None)
-        if self.repl:
-            self.toggle_repl(None)
         if type == "seeed":
             self.__set_all_button(False)
-        self.in_running_script = False
+            self.in_running_script = False
+            if self.fs:
+                self.toggle_files(None)
+            if self.plotter:
+                self.toggle_plotter(None)
+            if self.repl:
+                self.toggle_repl(None)
 
     def __asyc_detect_new_device_handle(self, device):
         device_name = device[1]
+        prefixPath = r"/dev/"
+        if device_name[: len(prefixPath)] == prefixPath:
+            device_name = device_name[len(prefixPath) :]
         self.__set_all_button(False)
         self.info.has_firmware = False
         self.info.board_id = None
@@ -1063,6 +1103,7 @@ class SeeedMode(MicroPythonMode):
             return False
 
         pvid = (port.vendorIdentifier(), port.productIdentifier())
+        print(device_name, pvid)
 
         # need match the seeed board pid vid
         if match(pvid, self.info.board_normal):
@@ -1139,9 +1180,10 @@ class SeeedMode(MicroPythonMode):
                     super().remove_plotter()
                 if self.in_running_script:
                     self.in_running_script = False
+                    self.setRunIcon()
                     self.set_buttons(repl=False)
                     self.invoke.board_halt()
-                self.set_buttons(run=True, files=True, repl=True)
+                self.set_buttons(modes=True, run=True, files=True, repl=True)
             elif not self.repl:
                 # Add REPL
                 super().toggle_repl(event)
@@ -1195,17 +1237,12 @@ class SeeedMode(MicroPythonMode):
             self.view.show_message(message, information)
             return
         """
-        run_slot = self.view.button_bar.slots["run"]
         # stop
         if self.in_running_script:
-            super().toggle_repl(None)
-            self.in_running_script = False
-            self.set_buttons(repl=False)
-            self.invoke.board_halt()
-            self.set_buttons(run=True, files=True, repl=True)
-            run_slot.setIcon(load_icon("run"))
-            run_slot.setText(_("Run"))
-            run_slot.setToolTip(_("Run your Python script."))
+            self.set_buttons(run=False)
+            self.curPos = len(self.view.repl_pane.toPlainText())
+            self.view.repl_pane.serial.write(b"\x03")
+            self.checkTerminalTimer.start(250)
         # run
         else:
             logger.info("Running script.")
@@ -1228,12 +1265,17 @@ class SeeedMode(MicroPythonMode):
                 super().toggle_repl(None)
             if self.repl:
                 self.set_buttons(
-                    modes=False, run=True, files=False, repl=True, plotter=True
+                    modes=False,
+                    run=False,
+                    files=False,
+                    repl=True,
+                    plotter=True,
                 )
+                self.view.repl_pane.serial.bytesWritten.connect(
+                    self.on_serialData_write
+                )
+                self.setRunIcon(False)
                 self.in_running_script = True
-                run_slot.setIcon(load_icon("stop"))
-                run_slot.setText(_("Stop"))
-                run_slot.setToolTip(_("Stop your Python script."))
                 self.view.repl_pane.send_commands(python_script)
 
     def toggle_files(self, event):
@@ -1353,3 +1395,35 @@ class SeeedMode(MicroPythonMode):
         """
         self.set_buttons(files=True)
         super().on_data_flood()
+
+    def setRunIcon(self, run=True):
+        keyword = "run" if run else "stop"
+        textHead = "Run" if run else "Stop"
+        tooltip = textHead + "your Python script."
+        run_slot = self.view.button_bar.slots["run"]
+        run_slot.setIcon(load_icon(keyword))
+        run_slot.setText(_(textHead))
+        run_slot.setToolTip(_(tooltip))
+
+    def checkTerminal(self):
+        text = self.view.repl_pane.toPlainText()
+        res = re.search(
+            self.terminalKeywords, text[self.curPos :], re.IGNORECASE
+        )
+        if res:
+            self.checkTerminalTimer.stop()
+            self.setRunIcon()
+            self.set_buttons(modes=True, run=True)
+            self.in_running_script = False
+
+    def on_serialData_write(self, word):
+        self.checkSerialWriteTimer.start(250)
+
+    def serialWriteFinish(self):
+        self.view.repl_pane.serial.bytesWritten.disconnect(
+            self.on_serialData_write
+        )
+        self.checkSerialWriteTimer.stop()
+        self.set_buttons(
+            modes=False, run=True, files=False, repl=True, plotter=True
+        )
