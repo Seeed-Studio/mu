@@ -567,7 +567,7 @@ class Downloader(QObject):
     finished = pyqtSignal(bool)
 
     def __init__(
-        self, des_path, source_path, reqTimeout=5, readTimeout=30, try_time=3
+        self, des_path, source_path, reqTimeout=10, readTimeout=30, try_time=3
     ):
         super(Downloader, self).__init__()
         self.retStatus = False
@@ -604,8 +604,13 @@ class Downloader(QObject):
             if os.path.exists(self.bak_file):
                 os.remove(self.bak_file)
 
+    def destoryRequestReply(self, reply):
+        reply.blockSignals(True)
+        reply.close()
+        reply = None
+
     def requestAgain(self):
-        self.reply.close()
+        self.destoryRequestReply(self.reply)
         self.request()
 
     def request(self):
@@ -661,6 +666,7 @@ class Downloader(QObject):
             print("finish download %s" % self.des_path)
             self.retStatus = True
             self.finished.emit(self.retStatus)
+            self.destoryRequestReply(self.reply)
         else:
             self.requestAgain()
             self.reqTimer.start(self.reqTimeout)
@@ -1081,8 +1087,8 @@ class SeeedMode(MicroPythonMode):
     def __asyc_detect_new_device_handle(self, device):
         device_name = device[1]
         prefixPath = r"/dev/"
-        if device_name[:len(prefixPath)] == prefixPath:
-            device_name = device_name[len(prefixPath):]
+        if device_name[: len(prefixPath)] == prefixPath:
+            device_name = device_name[len(prefixPath) :]
         self.__set_all_button(False)
         self.info.has_firmware = False
         self.info.board_id = None
@@ -1259,8 +1265,11 @@ class SeeedMode(MicroPythonMode):
                 super().toggle_repl(None)
             if self.repl:
                 self.set_buttons(
-                    modes=False, run=False,
-                    files=False, repl=True, plotter=True
+                    modes=False,
+                    run=False,
+                    files=False,
+                    repl=True,
+                    plotter=True,
                 )
                 self.view.repl_pane.serial.bytesWritten.connect(
                     self.on_serialData_write
@@ -1399,9 +1408,8 @@ class SeeedMode(MicroPythonMode):
     def checkTerminal(self):
         text = self.view.repl_pane.toPlainText()
         res = re.search(
-            self.terminalKeywords,
-            text[self.curPos:],
-            re.IGNORECASE)
+            self.terminalKeywords, text[self.curPos :], re.IGNORECASE
+        )
         if res:
             self.checkTerminalTimer.stop()
             self.setRunIcon()
