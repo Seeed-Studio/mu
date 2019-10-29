@@ -26,6 +26,7 @@ import platform
 import subprocess
 import shutil
 import zipfile
+import serial
 from mu.contrib.microfs import execute
 from mu.modes.api import SEEED_APIS, SHARED_APIS
 from mu.modes.base import MicroPythonMode, FileManager
@@ -36,7 +37,7 @@ from mu.interface.panes import (
 )
 from mu.interface.themes import Font, DEFAULT_FONT_SIZE
 from mu.resources import load_icon, path
-from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
+from PyQt5.QtSerialPort import QSerialPortInfo
 from PyQt5.QtCore import (
     pyqtSignal,
     QThread,
@@ -144,22 +145,31 @@ class Info:
     com = None
     board_id = None
     board_name = None
+    cmd_param = None
+    default_cmd_param = None
     config_fmt = "config-%s.json"
+    FLASHKEY = "flashParam"
 
     def __init__(self):
         inf = open(self.info_path, "r")
         inf = json.loads(inf.read())
         self.lib_dic = {}
+        self.cmd_param = {}
         self.board_boot.clear()
         self.board_normal.clear()
         self.dic_config.clear()
+        default_flash_param = inf[self.FLASHKEY]
 
         for board in inf["boot"]:
             name = board["type"]
             pvid = board["pvid"]
+
             keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_boot.append(keyv)
+            if self.FLASHKEY in board.keys():
+                self.cmd_param.setdefault(str(keyv), board[self.FLASHKEY])
+        self.cmd_param["default"] = default_flash_param
 
         for board in inf["normal"]:
             name = board["type"]
@@ -167,9 +177,6 @@ class Info:
             keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_normal.append(keyv)
-
-        inf = open(self.info_path, "r")
-        inf = json.loads(inf.read())
 
         for lib in inf["lib"]:
             self.lib_dic.setdefault(lib["name"], lib["version"])
@@ -198,7 +205,11 @@ class Info:
             else:
                 return path(child, "seeed/tools-win/")
 
-        cmd = '-i -d --port=%s -U true -i -e -w -v "%s" -R' % (
+        if self.board_id in self.cmd_param.keys():
+            cmd = self.cmd_param[self.board_id]
+        else:
+            cmd = self.cmd_param["default"]
+        cmd = cmd % (
             self.short_device_name,
             local_firmware,
         )
@@ -481,6 +492,8 @@ class SeeedFileSystemPane(QFrame):
         between Mu and the seeed board, this enables the controls again for
         further interactions to take place.
         """
+        print("SeeedFileSystemPane on_ls")
+        print(microbit_files)
         self.microbit_fs.clear()
         for f in microbit_files:
             self.microbit_fs.addItem(f)
@@ -589,7 +602,10 @@ class Downloader(QObject):
         self.networkManager = QNetworkAccessManager()
         self.request()
 
-        os.rename(self.des_path, self.bak_file)
+        if os.path.exists(self.bak_file):
+            os.remove(self.bak_file)
+        if os.path.exists(self.des_path):
+            os.rename(self.des_path, self.bak_file)
         self.fp = open(self.des_path, "wb")
         self.reqTimer.start(self.reqTimeout)
         self.eventLoop = QEventLoop()
@@ -599,7 +615,8 @@ class Downloader(QObject):
         if self.retStatus is False:
             if os.path.exists(self.des_path):
                 os.remove(self.des_path)
-            os.rename(self.bak_file, self.des_path)
+            if os.path.exists(self.bak_file):
+                os.rename(self.bak_file, self.des_path)
         else:
             if os.path.exists(self.bak_file):
                 os.remove(self.bak_file)
@@ -614,7 +631,6 @@ class Downloader(QObject):
         self.request()
 
     def request(self):
-        # print("[DEBUG]------Request")
         try:
             if self.try_time:
                 self.reply = self.networkManager.get(
@@ -653,7 +669,6 @@ class Downloader(QObject):
         self.reply.readyRead.disconnect(self.startRead)
 
     def onProgress(self, cur, total):
-        # print("%s---%s"%(cur, total))
         self.readTimer.start(self.readTimeout)
         if self.writeFile() is False:
             self.endRead(False)
@@ -680,7 +695,6 @@ class Downloader(QObject):
                     e = Exception("Invaild Data, Request again")
                     raise e
                 self.fp.write(data)
-                # print("writelen:%s"%writelen)
             return True
         except Exception as e:
             print("Exception happen in Function[writeFile]: " + str(e))
@@ -844,16 +858,6 @@ class FirmwareUpdater(QThread):
         sp.wait()
         return sp.returncode == 0
 
-    def on_put(self, file):
-        msg = "'%s' successfully copied to seeed board." % file
-        self.set_message.emit(msg)
-        self.list_files.emit()
-
-    def on_delete(self, file):
-        msg = "'%s' successfully deleted from seeed board." % file
-        self.set_message.emit(msg)
-        self.list_files.emit()
-
     def download_to_board(
         self, config, need_update=True, has_seeed_firmware=False
     ):
@@ -885,7 +889,6 @@ class FirmwareUpdater(QThread):
             self.need_confirm = True
 
         self.set_all_button.emit(False)
-
         if not self.in_bootload_mode:
             print("setting baud rate...")
             subprocess.call(self.info.stty % 1200, shell=True)
@@ -909,29 +912,27 @@ class FirmwareUpdater(QThread):
 
     def board_halt(self):
         for i in range(0, 3):
-            com = QSerialPort()
-            com.setBaudRate(115200)
-            com.setPortName(self.info.board_name)
-            if not com.open(QSerialPort.ReadWrite):
-                print("can't open com, waiting...")
-                time.sleep(5)
-                continue
-            buf = bytearray()
-            com.write(b"\x03")
-            time.sleep(0.05)
-            com.write(b"\x02")
-            time.sleep(0.05)
-            cur = datetime.datetime.now()
-            while com.waitForReadyRead(200):
-                deta = datetime.datetime.now() - cur
-                if deta.seconds > 1:
-                    break
-                buf = buf + com.readAll()
-                if len(buf) > 300:
-                    buf = buf[len(buf) - 200 :]
+            try:
+                com = serial.Serial(self.info.board_name, 115200, timeout=5)
+                com.timeout = 0.2
+                com.writeTimeout = 0.2
+                buf = bytearray()
+                com.write(b"\x03")
+                time.sleep(0.05)
+                com.write(b"\x02")
+                time.sleep(0.05)
+                lines = com.readlines()
+                com.close()
+                print("com close")
+                for line in lines:
+                    buf = buf + line
+                return buf
+            except serial.serialutil.SerialException as e:
+                print(e)
+            except serial.serialutil.SerialTimeoutException as e:
+                print("Serial Write/Read Timeout", e)
             com.close()
             print("com close")
-            return buf
         print("giveup")
         return None
 
@@ -1011,7 +1012,7 @@ class SeeedMode(MicroPythonMode):
 
     def __init__(self, editor, view):
         super().__init__(editor, view)
-        writeEnvrionmentVar()
+        # writeEnvrionmentVar()
         self.invoke = FirmwareUpdater(
             mu_code_path=super().workspace_dir(),  # mu_code/
             confirm=self.__confirm,
@@ -1242,6 +1243,7 @@ class SeeedMode(MicroPythonMode):
             self.set_buttons(run=False)
             self.curPos = len(self.view.repl_pane.toPlainText())
             self.view.repl_pane.serial.write(b"\x03")
+            self.in_running_script = False
             self.checkTerminalTimer.start(250)
         # run
         else:
@@ -1312,7 +1314,6 @@ class SeeedMode(MicroPythonMode):
 
         # Find serial port boards is connected to
         device_port, serial_number = self.find_device()
-
         # Check for MicroPython device
         if not device_port:
             message = _("Could not find an attached Seeed's line of boards.")
