@@ -76,7 +76,7 @@ recursive-include mu/locale *
 """
 
 
-def writeEnvrionmentVar():
+def SelectPackageTool():
     filePath = seeed_path("../../../")
     filePath = os.path.join(filePath, "MANIFEST.in")
     file = open(filePath, "w")
@@ -146,29 +146,33 @@ class Info:
     board_id = None
     board_name = None
     cmd_param = None
-    default_cmd_param = None
     config_fmt = "config-%s.json"
     FLASHKEY = "flashParam"
 
     def __init__(self):
-        inf = open(self.info_path, "r")
-        inf = json.loads(inf.read())
+        self.loadData()
+
+    def loadData(self):
+        fd = open(self.info_path, "r")
+        inf = json.loads(fd.read())
+        fd.close()
         self.lib_dic = {}
         self.cmd_param = {}
         self.board_boot.clear()
         self.board_normal.clear()
         self.dic_config.clear()
-        default_flash_param = inf[self.FLASHKEY]
+        default_flash_param = inf[self.FLASHKEY].replace("'", '"')
 
         for board in inf["boot"]:
             name = board["type"]
             pvid = board["pvid"]
-
             keyv = (int(pvid[0], 16), int(pvid[1], 16))
             self.dic_config.setdefault(str(keyv), self.config_fmt % name)
             self.board_boot.append(keyv)
             if self.FLASHKEY in board.keys():
-                self.cmd_param.setdefault(str(keyv), board[self.FLASHKEY])
+                self.cmd_param.setdefault(
+                    str(keyv), board[self.FLASHKEY].replace("'", '"')
+                )
         self.cmd_param["default"] = default_flash_param
 
         for board in inf["normal"]:
@@ -182,11 +186,16 @@ class Info:
             self.lib_dic.setdefault(lib["name"], lib["version"])
 
     @property
+    def cloud_info_path(self):
+        return "https://seeed-studio.github.io/ArduPy/info.json"
+
+    @property
     def cloud_libaray_info_path(self):
         return "https://seeed-studio.github.io/ArduPy/libaray.json"
 
     @property
     def current_config_name(self):
+        print(self.board_id)
         return self.dic_config[self.board_id]
 
     @property
@@ -209,10 +218,7 @@ class Info:
             cmd = self.cmd_param[self.board_id]
         else:
             cmd = self.cmd_param["default"]
-        cmd = cmd % (
-            self.short_device_name,
-            local_firmware,
-        )
+        cmd = cmd % (self.short_device_name, local_firmware)
         cmd = '"%sbossac" %s' % (path_tools(""), cmd)
         print(cmd)
         return cmd
@@ -717,6 +723,7 @@ class FirmwareUpdater(QThread):
     hint_flashing_success = "Flashing success."
     hint_flashing_fail = "Flashing fail."
     current_version = None
+    offlineMode = False
 
     def __init__(
         self,
@@ -734,10 +741,18 @@ class FirmwareUpdater(QThread):
         self.show_message_box.connect(show_message_box)
         self.set_all_button.connect(set_all_button)
         self.config = None
-        self.offlineMode = False
+
+    def renew_info_file(self):
+        if not self.confirmDownload(
+            self.info.info_path, self.info.cloud_info_path
+        ):
+            print("not download new info file!")
+            return
+        self.info.loadData()
 
     def run(self):
         self.set_all_button.emit(False)
+        self.renew_info_file()
         self.check_new_lib()
         run_once = True
         while True:
@@ -756,7 +771,7 @@ class FirmwareUpdater(QThread):
     def show_status_always(self, msg):
         self.show_status.emit(msg, 1000 * 1000)
 
-    # async function, ask user need try download again, \
+    # async function, ask user need try download again
     # until successful or refused
     def confirmDownload(self, des_path, source_path):
         while self.offlineMode is False:
@@ -776,7 +791,7 @@ class FirmwareUpdater(QThread):
         if not self.confirmDownload(
             self.info.libaray_info_path, self.info.cloud_libaray_info_path
         ):
-            print("not check and download new lib!")
+            print("not download new lib!")
             return
 
         lib = open(self.info.libaray_info_path, "r")
@@ -914,8 +929,8 @@ class FirmwareUpdater(QThread):
         for i in range(0, 3):
             try:
                 com = serial.Serial(self.info.board_name, 115200, timeout=5)
-                com.timeout = 0.2
-                com.writeTimeout = 0.2
+                com.timeout = 1
+                com.writeTimeout = 1
                 buf = bytearray()
                 com.write(b"\x03")
                 time.sleep(0.05)
@@ -1012,7 +1027,6 @@ class SeeedMode(MicroPythonMode):
 
     def __init__(self, editor, view):
         super().__init__(editor, view)
-        # writeEnvrionmentVar()
         self.invoke = FirmwareUpdater(
             mu_code_path=super().workspace_dir(),  # mu_code/
             confirm=self.__confirm,
